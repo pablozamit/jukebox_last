@@ -17,7 +17,7 @@ export default function AdminPage() {
     });
 
     const songsRef = collection(db, 'songs');
-    const q = query(songsRef, orderBy('votes', 'desc'), orderBy('title', 'asc'));
+    const q = query(songsRef, orderBy('votes', 'desc'), orderBy('firstVotedAt', 'asc'));
     const unsubSongs = onSnapshot(q, (snapshot) => {
       setSongs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
