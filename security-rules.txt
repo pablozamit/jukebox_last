@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Reglas Generales
+    match /{document=**} {
+      allow read, write: if false; 
+    }
+
+    // 1. Colección de canciones (songs)
+    match /songs/{songId} {
+      // Todos pueden leer las canciones para ver la lista y los votos
+      allow read: if true;
+      
+      // Permitir la actualización de votos SOLO si:
+      // a) El usuario está logueado (Anonymous Auth válido).
+      // b) Solo se está modificando 'votes' (incremento de +1) y 'firstVotedAt'.
+      allow update: if request.auth != null 
+                    && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'firstVotedAt']))
+                    && request.resource.data.votes == resource.data.votes + 1;
+                    
+      allow create, delete: if false; // Solo el backend Python crea/elimina
+    }
+
+    // 2. Estado de reproducción (state)
+    match /state/nowPlaying {
+      // Todo usuario puede leer (ver qué suena ahora)
+      allow read: if true;
+      
+      // Nadie escribe desde web, solo el backend con Admin SDK.
+      allow write: if false; 
+    }
+
+    // 3. Usuarios y tokens (users)
+    match /users/{userId} {
+      // Un usuario solo puede leer y escribir su PROPIO documento.
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
