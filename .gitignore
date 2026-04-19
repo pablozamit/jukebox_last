@@ -6,3 +6,4 @@ dist/
 !package-lock.json
 !composer.json
 !.github/workflows/*.json
+!vercel.json
