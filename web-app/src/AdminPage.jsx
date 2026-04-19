@@ -155,6 +155,13 @@ export default function AdminPage() {
                     >
                       <Play size={16} className="translate-x-[1px]" />
                     </button>
+                    <button 
+                      onClick={() => updateVotes(song.id, 0)} 
+                      className="p-1.5 rounded-lg flex items-center justify-center bg-red-500/10 text-red-500 hover:bg-red-500/30 transition-colors"
+                      title="Quitar de la cola"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </div>
               ))}
