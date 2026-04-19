@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc } from 'firebase/firestore';
-import { Flame, Play, SkipForward, EyeOff, Eye } from 'lucide-react';
+import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft } from 'lucide-react';
 import { db } from './firebase';
 
 export default function AdminPage() {
   const [password, setPassword] = useState('');
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('adminAuth') === 'true');
   const [songs, setSongs] = useState([]);
   const [nowPlaying, setNowPlaying] = useState(null);
 
@@ -32,6 +32,7 @@ export default function AdminPage() {
     e.preventDefault();
     if (password === 'vacainfame') {
       setAuthenticated(true);
+      localStorage.setItem('adminAuth', 'true');
     } else {
       alert('Contraseña incorrecta');
     }
@@ -64,7 +65,11 @@ export default function AdminPage() {
 
   if (!authenticated) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 selection:bg-brand-neon-purple/30">
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 selection:bg-brand-neon-purple/30 relative">
+        <a href="/" className="absolute top-6 left-6 sm:top-8 sm:left-8 flex items-center gap-2 text-zinc-500 hover:text-white transition-colors">
+          <ArrowLeft size={20} />
+          <span className="text-sm font-medium hidden sm:inline">Volver a Jukebox</span>
+        </a>
         <div className="text-center mb-8">
           <h1 className="font-serif text-4xl font-black text-brand-gold tracking-widest uppercase mb-1">
             La Catrina
@@ -93,9 +98,14 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans text-white">
       <header className="sticky top-0 z-50 bg-zinc-900 border-b border-zinc-800 p-4 flex justify-between items-center shadow-md">
-        <div>
-          <h1 className="font-serif font-black text-xl text-brand-gold uppercase tracking-wider">Admin</h1>
-          <span className="text-xs text-zinc-400">Jukebox Control Panel</span>
+        <div className="flex items-center gap-3">
+          <a href="/" className="p-2 -ml-2 text-zinc-400 hover:text-white transition-colors cursor-pointer" title="Volver a Jukebox">
+            <ArrowLeft size={20} />
+          </a>
+          <div>
+            <h1 className="font-serif font-black text-xl text-brand-gold uppercase tracking-wider leading-none">Admin</h1>
+            <span className="text-xs text-zinc-400 block mt-1">Jukebox Control Panel</span>
+          </div>
         </div>
         <button onClick={handleSkip} className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-500/20 transition-colors">
           <SkipForward size={18} />
