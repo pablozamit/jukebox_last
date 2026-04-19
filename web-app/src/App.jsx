@@ -55,10 +55,9 @@ export default function App() {
     const songsRef = collection(db, 'songs');
     const q = query(songsRef, orderBy('votes', 'desc'), orderBy('firstVotedAt', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const songsList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const songsList = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(song => song.available !== false); // ocultar canciones desactivadas
       setSongs(songsList);
       setLoading(false);
     });
