@@ -130,6 +130,38 @@ export default function AdminPage() {
           </section>
         )}
 
+        {/* Cola Real de Reproducción */}
+        {songs.filter(s => s.votes > 0).length > 0 && (
+          <section className="bg-zinc-900 border border-brand-gold/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(255,204,0,0.05)]">
+            <h2 className="text-brand-gold text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+               Siguientes en Cola ({songs.filter(s => s.votes > 0).length})
+            </h2>
+            <div className="space-y-2">
+              {songs.filter(s => s.votes > 0).map((song, index) => (
+                <div key={`queue-${song.id}`} className="flex justify-between items-center bg-zinc-950 p-3 rounded-lg border border-zinc-800">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <span className="text-zinc-500 font-bold w-4 text-center">{index + 1}</span>
+                    <span className="font-medium text-white truncate">{song.title}</span>
+                  </div>
+                  <div className="flex items-center gap-3 pl-3 shrink-0">
+                    <span className="flex items-center gap-1 font-medium text-brand-gold text-sm">
+                      <Flame size={14} /> {song.votes}
+                    </span>
+                    <button 
+                      onClick={() => handleForcePlay(song.id)} 
+                      disabled={song.available === false}
+                      className={`p-1.5 rounded-lg flex items-center justify-center transition-colors ${song.available === false ? 'bg-zinc-800 text-zinc-600' : 'bg-brand-neon-green/10 text-brand-neon-green hover:bg-brand-neon-green/30'}`} 
+                      title="Saltar a esta directamente"
+                    >
+                      <Play size={16} className="translate-x-[1px]" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="space-y-3">
           <h2 className="text-lg font-bold text-zinc-300 ml-1 mb-2">Catálogo de Canciones</h2>
           {songs.map(song => (
