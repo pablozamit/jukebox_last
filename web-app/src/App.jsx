@@ -65,24 +65,30 @@ export default function App() {
   }, []);
 
   const handleVote = async (song) => {
-    if (userActiveVote || !userId) return; // Ya votó o no autenticado
+    if (userActiveVote) {
+      alert("Ya has votado. Espera a que termine la canción.");
+      return;
+    }
+    
+    if (!userId) {
+      alert("ERROR: No tienes ID de usuario. Prueba a recargar la página.");
+      return;
+    }
 
     try {
-      // 1. Update user document
       const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, { activeVote: song.id });
+      // Usamos setDoc para asegurar que el perfil se cree si no existe
+      await setDoc(userRef, { activeVote: song.id }, { merge: true });
 
-      // 2. Update song votes and firstVotedAt if necessary
       const songRef = doc(db, 'songs', song.id);
-      
-      const updateData = { votes: increment(1) };
-      if (song.votes === 0) {
-        updateData.firstVotedAt = Date.now();
-      }
-      
-      await updateDoc(songRef, updateData);
+      await updateDoc(songRef, { 
+        votes: increment(1),
+        firstVotedAt: Date.now()
+      });
+      console.log("Voto registrado con éxito");
     } catch (error) {
-      console.error("Error al votar:", error);
+      alert("CRITICAL ERROR Firebase: " + error.message);
+      console.error(error);
     }
   };
 
