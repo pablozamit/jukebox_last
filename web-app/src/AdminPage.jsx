@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2 } from 'lucide-react';
 import { db } from './firebase';
 import { translations } from './translations';
@@ -7,7 +7,8 @@ import { translations } from './translations';
 export default function AdminPage() {
   const [password, setPassword] = useState('');
   const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('adminAuth') === 'true');
-  const [songs, setSongs] = useState([]);
+  const [catalog, setCatalog] = useState([]);
+  const [activeQueue, setActiveQueue] = useState({});
   const [nowPlaying, setNowPlaying] = useState(null);
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
 
@@ -24,14 +25,23 @@ export default function AdminPage() {
       if (docSnap.exists()) setNowPlaying(docSnap.data());
     });
 
+    const catalogRef = doc(db, 'catalog', 'full_list');
+    const unsubCatalog = onSnapshot(catalogRef, (docSnap) => {
+      if (docSnap.exists()) setCatalog(docSnap.data().songs || []);
+    });
+
     const songsRef = collection(db, 'songs');
-    const q = query(songsRef, orderBy('votes', 'desc'), orderBy('firstVotedAt', 'asc'));
-    const unsubSongs = onSnapshot(q, (snapshot) => {
-      setSongs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubSongs = onSnapshot(songsRef, (snapshot) => {
+      const queueMap = {};
+      snapshot.docs.forEach(doc => {
+        queueMap[doc.id] = doc.data();
+      });
+      setActiveQueue(queueMap);
     });
 
     return () => {
       unsubState();
+      unsubCatalog();
       unsubSongs();
     };
   }, [authenticated]);
@@ -54,16 +64,25 @@ export default function AdminPage() {
     await setDoc(doc(db, 'commands', 'skipCurrent'), { skip: true });
   };
 
-  const updateVotes = async (songId, numVotes) => {
-    const updateData = { votes: numVotes < 0 ? 0 : numVotes };
-    if (numVotes > 0) {
-      updateData.firstVotedAt = Date.now();
+  const updateVotes = async (song, numVotes) => {
+    const songRef = doc(db, 'songs', song.id);
+    if (numVotes <= 0) {
+      await deleteDoc(songRef);
+    } else {
+      await setDoc(songRef, {
+        title: song.title,
+        votes: numVotes,
+        firstVotedAt: Date.now()
+      }, { merge: true });
     }
-    await updateDoc(doc(db, 'songs', songId), updateData);
   };
 
-  const toggleAvailability = async (songId, currentStatus) => {
-    await updateDoc(doc(db, 'songs', songId), { available: !currentStatus });
+  const toggleAvailability = async (songId) => {
+    const catalogRef = doc(db, 'catalog', 'full_list');
+    const updatedCatalog = catalog.map(s =>
+      s.id === songId ? { ...s, available: !s.available } : s
+    );
+    await updateDoc(catalogRef, { songs: updatedCatalog });
   };
 
   const calculateProgress = () => {
@@ -117,6 +136,21 @@ export default function AdminPage() {
     );
   }
 
+  // Combinar catálogo con votos de la cola activa
+  const mergedSongs = catalog
+    .map(song => ({
+      ...song,
+      votes: activeQueue[song.id]?.votes || 0,
+      firstVotedAt: activeQueue[song.id]?.firstVotedAt || null
+    }))
+    .sort((a, b) => {
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      if (a.firstVotedAt && b.firstVotedAt) return a.firstVotedAt - b.firstVotedAt;
+      return 0;
+    });
+
+  const nextInQueue = mergedSongs.filter(s => s.votes > 0);
+
   return (
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans text-white">
       <header className="sticky top-0 z-50 bg-zinc-900 border-b border-zinc-800 p-4 flex justify-between items-center shadow-md">
@@ -169,13 +203,13 @@ export default function AdminPage() {
         )}
 
         {/* Cola Real de Reproducción */}
-        {songs.filter(s => s.votes > 0).length > 0 && (
+        {nextInQueue.length > 0 && (
           <section className="bg-zinc-900 border border-brand-gold/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(255,204,0,0.05)]">
             <h2 className="text-brand-gold text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
-               {t.nextInQueue} ({songs.filter(s => s.votes > 0).length})
+               {t.nextInQueue} ({nextInQueue.length})
             </h2>
             <div className="space-y-2">
-              {songs.filter(s => s.votes > 0).map((song, index) => (
+              {nextInQueue.map((song, index) => (
                 <div key={`queue-${song.id}`} className="flex justify-between items-center bg-zinc-950 p-3 rounded-lg border border-zinc-800">
                   <div className="flex items-center gap-3 overflow-hidden">
                     <span className="text-zinc-500 font-bold w-4 text-center">{index + 1}</span>
@@ -194,7 +228,7 @@ export default function AdminPage() {
                       <Play size={16} className="translate-x-[1px]" />
                     </button>
                     <button 
-                      onClick={() => updateVotes(song.id, 0)} 
+                      onClick={() => updateVotes(song, 0)}
                       className="p-1.5 rounded-lg flex items-center justify-center bg-red-500/10 text-red-500 hover:bg-red-500/30 transition-colors"
                       title={t.removeFromQueue}
                     >
@@ -209,7 +243,7 @@ export default function AdminPage() {
 
         <section className="space-y-3">
           <h2 className="text-lg font-bold text-zinc-300 ml-1 mb-2">{t.songCatalog}</h2>
-          {songs.map(song => (
+          {mergedSongs.map(song => (
             <div key={song.id} className={`p-4 rounded-xl border flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center transition-opacity ${song.available === false ? 'bg-zinc-950 border-red-500/20 opacity-60' : 'bg-zinc-900 border-zinc-800'}`}>
               
               <div className="flex-1 min-w-0 w-full">
@@ -228,9 +262,9 @@ export default function AdminPage() {
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
                 {/* Controles de Votos */}
                 <div className="flex items-center bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden mr-2">
-                  <button onClick={() => updateVotes(song.id, song.votes - 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-purple">-</button>
+                  <button onClick={() => updateVotes(song, song.votes - 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-purple">-</button>
                   <span className="px-3 py-2 font-bold min-w-[2.5rem] text-center text-sm">{song.votes}</span>
-                  <button onClick={() => updateVotes(song.id, song.votes + 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-green">+</button>
+                  <button onClick={() => updateVotes(song, song.votes + 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-green">+</button>
                 </div>
 
                 {/* Forzar Reproducción */}
@@ -244,7 +278,7 @@ export default function AdminPage() {
                 </button>
 
                 {/* Toggle Visibilidad */}
-                <button onClick={() => toggleAvailability(song.id, song.available)} className={`p-2.5 rounded-lg transition-colors border ${song.available !== false ? 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:bg-zinc-800' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`} title={song.available !== false ? t.hideSong : t.showSong}>
+                <button onClick={() => toggleAvailability(song.id)} className={`p-2.5 rounded-lg transition-colors border ${song.available !== false ? 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:bg-zinc-800' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`} title={song.available !== false ? t.hideSong : t.showSong}>
                   {song.available !== false ? <Eye size={18} /> : <EyeOff size={18} />}
                 </button>
               </div>
