@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Search, Flame, Plus, Music2 } from 'lucide-react';
+import { Search, Flame, Plus, Music2, X, HelpCircle } from 'lucide-react';
 import { db, auth } from './firebase';
+import { translations } from './translations';
 
 export default function App() {
   const [songs, setSongs] = useState([]);
@@ -11,6 +12,15 @@ export default function App() {
   const [userId, setUserId] = useState(null);
   const [userActiveVote, setUserActiveVote] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
+  const [showHelp, setShowHelp] = useState(false);
+  const [helpStep, setHelpStep] = useState(0);
+
+  const t = translations[lang];
+
+  useEffect(() => {
+    localStorage.setItem('lang', lang);
+  }, [lang]);
 
   // Auth Effect
   useEffect(() => {
@@ -66,12 +76,12 @@ export default function App() {
 
   const handleVote = async (song) => {
     if (userActiveVote) {
-      alert("Ya has votado. Espera a que termine la canción.");
+      alert(t.alreadyVoted);
       return;
     }
     
     if (!userId) {
-      alert("ERROR: No tienes ID de usuario. Prueba a recargar la página.");
+      alert(t.authError);
       return;
     }
 
@@ -85,9 +95,10 @@ export default function App() {
         votes: increment(1),
         firstVotedAt: Date.now()
       });
+      setSearchTerm('');
       console.log("Voto registrado con éxito");
     } catch (error) {
-      alert("CRITICAL ERROR Firebase: " + error.message);
+      alert(t.firebaseError + error.message);
       console.error(error);
     }
   };
@@ -108,7 +119,7 @@ export default function App() {
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-brand-gold">Cargando...</div>;
+    return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-brand-gold">{t.loading}</div>;
   }
 
   const topSongId = songs.length > 0 && songs[0].votes > 0 ? songs[0].id : null;
@@ -118,27 +129,52 @@ export default function App() {
       
       {/* Header Fijo */}
       <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-brand-gold/20 p-4 shrink-0 flex flex-col items-center justify-center">
+        <div className="absolute top-4 right-4 flex gap-2">
+          <button
+            onClick={() => setLang('es')}
+            className={`text-xl transition-opacity ${lang === 'es' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
+            title="Español"
+          >
+            🇪🇸
+          </button>
+          <button
+            onClick={() => setLang('en')}
+            className={`text-xl transition-opacity ${lang === 'en' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
+            title="English"
+          >
+            🇺🇸
+          </button>
+        </div>
         <h1 className="font-serif text-3xl font-black text-brand-gold tracking-widest uppercase mb-1">
           La Catrina
         </h1>
         <h2 className="font-script text-2xl text-brand-gold-dark -mt-2">
-          Cocktails & Rock
+          {t.subtitle}
         </h2>
       </header>
 
       <main className="p-4 space-y-6 max-w-lg mx-auto">
         
+        {/* Ayuda / How it works */}
+        <button
+          onClick={() => { setHelpStep(0); setShowHelp(true); }}
+          className="w-full flex items-center justify-center gap-2 py-2 text-zinc-500 hover:text-brand-neon-purple transition-colors text-sm font-medium"
+        >
+          <HelpCircle size={18} />
+          {t.howItWorks}
+        </button>
+
         {/* Ahora Sonando */}
         <section className="bg-zinc-900 border border-brand-neon-purple/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(176,38,255,0.15)] relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-brand-neon-purple/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
           
           <div className="flex items-center gap-2 text-brand-neon-purple font-semibold uppercase tracking-wider text-xs mb-3">
             <Music2 size={16} className="animate-pulse" />
-            Ahora Sonando
+            {t.nowPlaying}
           </div>
           
           <h3 className="text-xl font-bold text-white mb-6 line-clamp-2 leading-tight">
-            {nowPlaying ? nowPlaying.title : 'Modo Automático...'}
+            {nowPlaying ? nowPlaying.title : t.autoMode}
           </h3>
           
           {/* Progress Bar */}
@@ -157,15 +193,15 @@ export default function App() {
         </section>
 
         {/* User Status Banner (Sticky under header) */}
-        <div className="sticky top-[88px] z-40 bg-zinc-950 pb-2">
+        <div className="sticky top-[110px] z-40 bg-zinc-950 pb-2">
           <div className={`rounded-xl p-3 text-center text-sm font-medium border shadow-lg transition-colors duration-300 ${
             userActiveVote === null 
               ? 'bg-brand-neon-green/10 border-brand-neon-green/30 text-brand-neon-green' 
               : 'bg-zinc-900 border-zinc-800 text-zinc-400'
           }`}>
             {userActiveVote === null 
-              ? '✨ Tienes 1 voto disponible' 
-              : '🔒 Voto en uso. Recupera tu token cuando suene.'}
+              ? t.voteAvailable
+              : t.voteInUse}
           </div>
         </div>
 
@@ -174,17 +210,25 @@ export default function App() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={20} />
           <input
             type="text"
-            placeholder="Buscar canción o artista..."
+            placeholder={t.searchPlaceholder}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white placeholder-zinc-500 focus:outline-none focus:border-brand-neon-purple focus:ring-1 focus:ring-brand-neon-purple transition-all"
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-10 pr-10 text-white placeholder-zinc-500 focus:outline-none focus:border-brand-neon-purple focus:ring-1 focus:ring-brand-neon-purple transition-all"
           />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-400 p-1"
+            >
+              <X size={20} />
+            </button>
+          )}
         </div>
 
         {/* Catalog */}
         <section className="space-y-3">
           {filteredSongs.length === 0 ? (
-            <p className="text-center text-zinc-600 py-10">No se encontraron resultados.</p>
+            <p className="text-center text-zinc-600 py-10">{t.noResults}</p>
           ) : (
             filteredSongs.map((song) => {
               const isTop = song.id === topSongId && song.votes > 0;
@@ -205,7 +249,7 @@ export default function App() {
                     <div className="flex items-center gap-1.5 mt-1">
                       {song.votes > 0 && <Flame size={12} className="text-brand-gold" />}
                       <span className={`text-xs ${song.votes > 0 ? 'text-brand-gold font-medium' : 'text-zinc-600'}`}>
-                        {song.votes === 0 ? 'Sin votos' : `${song.votes} voto${song.votes > 1 ? 's' : ''}`}
+                        {song.votes === 0 ? t.noVotes : `${song.votes} ${song.votes === 1 ? t.vote : t.votes}`}
                       </span>
                     </div>
                   </div>
@@ -225,7 +269,7 @@ export default function App() {
                     }`}
                   >
                     {!userActiveVote && song.votes === 0 && <Plus size={16} className="mr-1" />}
-                    {hasVotedThis ? 'Votado' : song.votes === 0 ? 'Añadir' : 'Votar'}
+                    {hasVotedThis ? t.voted : song.votes === 0 ? t.add : t.voteButton}
                   </button>
                   
                   {userActiveVote !== null && !hasVotedThis && (
@@ -240,6 +284,57 @@ export default function App() {
         </section>
 
       </main>
+
+      {/* Help Modal */}
+      {showHelp && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-brand-gold/30 rounded-3xl p-8 max-w-sm w-full shadow-[0_0_50px_rgba(255,204,0,0.1)] relative">
+            <button
+              onClick={() => setShowHelp(false)}
+              className="absolute top-4 right-4 text-zinc-500 hover:text-white"
+            >
+              <X size={24} />
+            </button>
+
+            <div className="text-center space-y-6">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-gold/10 text-brand-gold mb-2">
+                <span className="text-2xl font-black">{helpStep + 1}</span>
+              </div>
+
+              <div>
+                <h2 className="text-2xl font-bold text-white mb-3">
+                  {t.helpSteps[helpStep].title}
+                </h2>
+                <p className="text-zinc-400 leading-relaxed">
+                  {t.helpSteps[helpStep].text}
+                </p>
+              </div>
+
+              <div className="flex gap-2 justify-center">
+                {[0, 1, 2, 3].map((s) => (
+                  <div
+                    key={s}
+                    className={`h-1.5 w-8 rounded-full transition-colors ${s === helpStep ? 'bg-brand-gold' : 'bg-zinc-800'}`}
+                  />
+                ))}
+              </div>
+
+              <button
+                onClick={() => {
+                  if (helpStep < 3) {
+                    setHelpStep(helpStep + 1);
+                  } else {
+                    setShowHelp(false);
+                  }
+                }}
+                className="w-full bg-brand-gold text-zinc-950 font-bold py-4 rounded-2xl hover:scale-[1.02] active:scale-95 transition-all"
+              >
+                {helpStep < 3 ? t.next : t.finish}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
