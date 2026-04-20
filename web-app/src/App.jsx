@@ -6,7 +6,8 @@ import { db, auth } from './firebase';
 import { translations } from './translations';
 
 export default function App() {
-  const [songs, setSongs] = useState([]);
+  const [catalog, setCatalog] = useState([]);
+  const [activeQueue, setActiveQueue] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [nowPlaying, setNowPlaying] = useState(null);
   const [userId, setUserId] = useState(null);
@@ -60,16 +61,27 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Songs Catalog listener
+  // 1. Static Catalog Listener
+  useEffect(() => {
+    const catalogRef = doc(db, 'catalog', 'full_list');
+    const unsubscribe = onSnapshot(catalogRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setCatalog(docSnap.data().songs || []);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Active Queue Listener (songs with votes)
   useEffect(() => {
     const songsRef = collection(db, 'songs');
-    const q = query(songsRef, orderBy('votes', 'desc'), orderBy('firstVotedAt', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const songsList = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(song => song.available !== false); // ocultar canciones desactivadas
-      setSongs(songsList);
-      setLoading(false);
+    const unsubscribe = onSnapshot(songsRef, (snapshot) => {
+      const queueMap = {};
+      snapshot.docs.forEach(doc => {
+        queueMap[doc.id] = doc.data();
+      });
+      setActiveQueue(queueMap);
     });
     return () => unsubscribe();
   }, []);
@@ -91,10 +103,13 @@ export default function App() {
       await setDoc(userRef, { activeVote: song.id }, { merge: true });
 
       const songRef = doc(db, 'songs', song.id);
-      await updateDoc(songRef, { 
+      // Cambiamos a setDoc con merge: true para crear el doc si no existe
+      await setDoc(songRef, {
+        title: song.title,
         votes: increment(1),
         firstVotedAt: Date.now()
-      });
+      }, { merge: true });
+
       setSearchTerm('');
       console.log("Voto registrado con éxito");
     } catch (error) {
@@ -103,7 +118,21 @@ export default function App() {
     }
   };
 
-  const filteredSongs = songs.filter(song => 
+  // Combinar catálogo con votos de la cola activa
+  const mergedSongs = catalog
+    .map(song => ({
+      ...song,
+      votes: activeQueue[song.id]?.votes || 0,
+      firstVotedAt: activeQueue[song.id]?.firstVotedAt || null
+    }))
+    .filter(song => song.available !== false)
+    .sort((a, b) => {
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      if (a.firstVotedAt && b.firstVotedAt) return a.firstVotedAt - b.firstVotedAt;
+      return 0;
+    });
+
+  const filteredSongs = mergedSongs.filter(song =>
     song.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -122,7 +151,7 @@ export default function App() {
     return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-brand-gold">{t.loading}</div>;
   }
 
-  const topSongId = songs.length > 0 && songs[0].votes > 0 ? songs[0].id : null;
+  const topSongId = mergedSongs.length > 0 && mergedSongs[0].votes > 0 ? mergedSongs[0].id : null;
 
   return (
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans selection:bg-brand-neon-purple/30">
