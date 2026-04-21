@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, arrayUnion } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle } from 'lucide-react';
+import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
 
@@ -11,11 +11,14 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [nowPlaying, setNowPlaying] = useState(null);
   const [userId, setUserId] = useState(null);
-  const [userActiveVote, setUserActiveVote] = useState(null);
+  const [userProposals, setUserProposals] = useState([]);
+  const [userVotes, setUserVotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
   const [showHelp, setShowHelp] = useState(false);
   const [helpStep, setHelpStep] = useState(0);
+  const [showScroll, setShowScroll] = useState(false);
+  const [suggested, setSuggested] = useState(false);
 
   const t = translations[lang];
 
@@ -23,31 +26,50 @@ export default function App() {
     localStorage.setItem('lang', lang);
   }, [lang]);
 
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScroll(window.scrollY > 300);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   // Auth Effect
   useEffect(() => {
+    let unsubUser = null;
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (unsubUser) {
+        unsubUser();
+        unsubUser = null;
+      }
+
       if (user) {
         setUserId(user.uid);
-        // Listen to user document for active vote
         const userRef = doc(db, 'users', user.uid);
         
         // Ensure user document exists
         const userDoc = await getDoc(userRef);
         if(!userDoc.exists()){
-          await setDoc(userRef, { activeVote: null });
+          await setDoc(userRef, { proposals: [], votes: [] });
         }
 
-        const unsubUser = onSnapshot(userRef, (docSnap) => {
+        unsubUser = onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
-            setUserActiveVote(docSnap.data().activeVote);
+            const data = docSnap.data();
+            setUserProposals(data.proposals || []);
+            setUserVotes(data.votes || []);
           }
         });
-        return () => unsubUser();
       } else {
         setUserId(null);
+        setUserProposals([]);
+        setUserVotes([]);
       }
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubUser) unsubUser();
+    };
   }, []);
 
   // Now Playing listener
@@ -87,34 +109,67 @@ export default function App() {
   }, []);
 
   const handleVote = async (song) => {
-    if (userActiveVote) {
-      alert(t.alreadyVoted);
-      return;
-    }
-    
     if (!userId) {
       alert(t.authError);
       return;
     }
 
+    const isProposal = song.votes === 0;
+
+    if (isProposal) {
+      if (userProposals.length >= 3) {
+        alert(t.alreadyVoted); // We might need a better message for limits
+        return;
+      }
+      if (userProposals.includes(song.id)) {
+        alert(t.voted);
+        return;
+      }
+    } else {
+      if (userVotes.length >= 5) {
+        alert(t.alreadyVoted);
+        return;
+      }
+      if (userVotes.includes(song.id)) {
+        alert(t.voted);
+        return;
+      }
+    }
+
     try {
       const userRef = doc(db, 'users', userId);
-      // Usamos setDoc para asegurar que el perfil se cree si no existe
-      await setDoc(userRef, { activeVote: song.id }, { merge: true });
+      await setDoc(userRef, {
+        [isProposal ? 'proposals' : 'votes']: arrayUnion(song.id)
+      }, { merge: true });
 
       const songRef = doc(db, 'songs', song.id);
-      // Cambiamos a setDoc con merge: true para crear el doc si no existe
       await setDoc(songRef, {
         title: song.title,
         votes: increment(1),
-        firstVotedAt: Date.now()
+        firstVotedAt: isProposal ? Date.now() : (activeQueue[song.id]?.firstVotedAt || Date.now())
       }, { merge: true });
 
       setSearchTerm('');
-      console.log("Voto registrado con éxito");
+      console.log("Acción registrada con éxito");
     } catch (error) {
       alert(t.firebaseError + error.message);
       console.error(error);
+    }
+  };
+
+  const handleSuggest = async () => {
+    if(!searchTerm || !userId) return;
+    try {
+      await addDoc(collection(db, 'suggestions'), {
+        title: searchTerm,
+        timestamp: Date.now(),
+        userId
+      });
+      setSuggested(true);
+      setTimeout(() => setSuggested(false), 3000);
+      setSearchTerm('');
+    } catch (error) {
+      console.error("Error sending suggestion:", error);
     }
   };
 
@@ -222,15 +277,20 @@ export default function App() {
         </section>
 
         {/* User Status Banner (Sticky under header) */}
-        <div className="sticky top-[110px] z-40 bg-zinc-950 pb-2">
-          <div className={`rounded-xl p-3 text-center text-sm font-medium border shadow-lg transition-colors duration-300 ${
-            userActiveVote === null 
+        <div className="sticky top-[110px] z-40 bg-zinc-950 pb-2 flex gap-2">
+          <div className={`flex-1 rounded-xl p-3 text-center text-sm font-medium border shadow-lg transition-colors duration-300 ${
+            userProposals.length < 3
               ? 'bg-brand-neon-green/10 border-brand-neon-green/30 text-brand-neon-green' 
               : 'bg-zinc-900 border-zinc-800 text-zinc-400'
           }`}>
-            {userActiveVote === null 
-              ? t.voteAvailable
-              : t.voteInUse}
+            {t.proposalsLabel}: {userProposals.length}/3
+          </div>
+          <div className={`flex-1 rounded-xl p-3 text-center text-sm font-medium border shadow-lg transition-colors duration-300 ${
+            userVotes.length < 5
+              ? 'bg-brand-neon-purple/10 border-brand-neon-purple/30 text-brand-neon-purple'
+              : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+          }`}>
+            {t.votesLabel}: {userVotes.length}/5
           </div>
         </div>
 
@@ -257,11 +317,37 @@ export default function App() {
         {/* Catalog */}
         <section className="space-y-3">
           {filteredSongs.length === 0 ? (
-            <p className="text-center text-zinc-600 py-10">{t.noResults}</p>
+            searchTerm !== '' ? (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
+                <div className="flex justify-center">
+                  <Music2 size={48} className="text-zinc-700" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">{t.suggestTitle}</h3>
+                  <p className="text-zinc-400 text-sm">{t.suggestDesc}</p>
+                  <p className="text-brand-gold italic mt-2">"{searchTerm}"</p>
+                </div>
+                <button
+                  onClick={handleSuggest}
+                  className={`w-full py-3 rounded-xl font-bold transition-all ${
+                    suggested
+                      ? 'bg-brand-neon-green/20 text-brand-neon-green'
+                      : 'bg-zinc-800 text-white hover:bg-zinc-700'
+                  }`}
+                >
+                  {suggested ? t.suggestSuccess : t.suggestButton}
+                </button>
+              </div>
+            ) : (
+              <p className="text-center text-zinc-600 py-10">{t.noResults}</p>
+            )
           ) : (
             filteredSongs.map((song) => {
               const isTop = song.id === topSongId && song.votes > 0;
-              const hasVotedThis = userActiveVote === song.id;
+              const isNowPlaying = nowPlaying?.title === song.title;
+              const hasVotedThis = userVotes.includes(song.id) || userProposals.includes(song.id);
+              const isProposal = song.votes === 0;
+              const limitReached = isProposal ? userProposals.length >= 3 : userVotes.length >= 5;
               
               return (
                 <div 
@@ -286,26 +372,28 @@ export default function App() {
                   {/* Actions */}
                   <button
                     onClick={() => handleVote(song)}
-                    disabled={userActiveVote !== null}
+                    disabled={isNowPlaying || hasVotedThis || limitReached}
                     className={`shrink-0 flex items-center justify-center h-10 px-4 rounded-lg font-medium text-sm transition-all ${
-                      hasVotedThis
-                        ? 'bg-brand-neon-purple/20 text-brand-neon-purple cursor-not-allowed'
-                        : userActiveVote !== null
-                          ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed hidden sm:flex'
-                          : song.votes === 0
-                            ? 'bg-zinc-800 text-white hover:bg-zinc-700 active:bg-zinc-600'
-                            : 'bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/20 active:bg-brand-gold/30'
+                      isNowPlaying
+                        ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                        : hasVotedThis
+                          ? 'bg-brand-neon-purple/20 text-brand-neon-purple cursor-not-allowed'
+                          : limitReached
+                            ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                            : song.votes === 0
+                              ? 'bg-zinc-800 text-white hover:bg-zinc-700 active:bg-zinc-600'
+                              : 'bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/20 active:bg-brand-gold/30'
                     }`}
                   >
-                    {!userActiveVote && song.votes === 0 && <Plus size={16} className="mr-1" />}
-                    {hasVotedThis ? t.voted : song.votes === 0 ? t.add : t.voteButton}
+                    {!isNowPlaying && !hasVotedThis && !limitReached && song.votes === 0 && <Plus size={16} className="mr-1" />}
+                    {isNowPlaying
+                      ? t.nowPlayingBtn
+                      : hasVotedThis
+                        ? t.voted
+                        : song.votes === 0
+                          ? t.add
+                          : t.voteButton}
                   </button>
-                  
-                  {userActiveVote !== null && !hasVotedThis && (
-                    <button className="sm:hidden w-10 h-10 shrink-0 bg-zinc-800 rounded-lg flex items-center justify-center opacity-50 cursor-not-allowed">
-                       <Plus size={16} className="text-zinc-600" />
-                    </button>
-                  )}
                 </div>
               );
             })
@@ -363,6 +451,16 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Scroll to Top */}
+      {showScroll && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-6 right-6 z-50 w-12 h-12 bg-zinc-900 border border-brand-neon-purple text-brand-neon-purple rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(176,38,255,0.5)] transition-all hover:scale-110 active:scale-95"
+        >
+          <ArrowUp size={24} />
+        </button>
       )}
     </div>
   );
