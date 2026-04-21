@@ -62,7 +62,18 @@ export const translations = {
     suggestButton: "Enviar sugerencia",
     suggestSuccess: "¡Sugerencia enviada!",
     proposalsLabel: "Propuestas",
-    votesLabel: "Votos"
+    votesLabel: "Votos",
+    statsTitle: "Estadísticas de La Catrina",
+    statsToday: "Hoy",
+    statsWeek: "Semana",
+    statsMonth: "Mes",
+    statsTotal: "Histórico",
+    statsPlays: "Reproducciones",
+    statsVotes: "Votos",
+    statsTime: "Actividad por Horas",
+    statsDays: "Actividad por Días",
+    noStats: "Aún no hay datos para este periodo.",
+    daysShort: ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
   },
   en: {
     loading: "Loading...",
@@ -127,6 +138,17 @@ export const translations = {
     suggestButton: "Send suggestion",
     suggestSuccess: "Suggestion sent!",
     proposalsLabel: "Proposals",
-    votesLabel: "Votes"
+    votesLabel: "Votes",
+    statsTitle: "La Catrina Statistics",
+    statsToday: "Today",
+    statsWeek: "Week",
+    statsMonth: "Month",
+    statsTotal: "All Time",
+    statsPlays: "Plays",
+    statsVotes: "Votes",
+    statsTime: "Activity by Hour",
+    statsDays: "Activity by Day",
+    noStats: "No data available for this period.",
+    daysShort: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
   }
 };
