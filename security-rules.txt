@@ -38,7 +38,7 @@ service cloud.firestore {
     }
 
     // 3. Estado de reproducción (state)
-    match /state/nowPlaying {
+    match /state/{document=**} {
       allow read: if true;
       allow write: if false; 
     }
