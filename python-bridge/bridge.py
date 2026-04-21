@@ -1,4 +1,5 @@
 import asyncio, json, os, glob, random, time
+from datetime import datetime, time as dt_time
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -41,6 +42,60 @@ def sync_local_files():
     print(f"Catálogo sincronizado: {len(catalog_list)} canciones guardadas en 1 solo documento.")
     return local_filenames
 
+async def clear_all_data():
+    """Limpia absolutamente todo: cola de canciones, tokens de usuarios y cooldowns."""
+    try:
+        print(" [SISTEMA] Realizando limpieza de nueva jornada...")
+        batch = db.batch()
+        count = 0
+        
+        # 1. Borrar todos los documentos de la cola de canciones
+        songs_ref = db.collection('songs').stream()
+        for song in songs_ref:
+            batch.delete(song.reference)
+            count += 1
+            if count >= 400:
+                batch.commit(); batch = db.batch(); count = 0
+        
+        # 2. Resetear propuestas y votos de TODOS los usuarios
+        users_ref = db.collection('users').stream()
+        for user in users_ref:
+            batch.update(user.reference, {'proposals': [], 'votes': []})
+            count += 1
+            if count >= 400:
+                batch.commit(); batch = db.batch(); count = 0
+        
+        # 3. Limpiar el documento de cooldowns (bloqueos de 1 hora)
+        batch.delete(db.collection('state').document('cooldowns'))
+        
+        if count > 0:
+            batch.commit()
+            
+        print(" [SISTEMA] ¡Base de datos reseteada para la nueva sesión!")
+    except Exception as e:
+        print(f" Error en limpieza total: {e}")
+
+async def check_for_new_session():
+    """Comprueba si toca resetear según la hora de la última activación."""
+    try:
+        now = datetime.now()
+        state_doc = db.collection('state').document('nowPlaying').get()
+        
+        if state_doc.exists:
+            last_active_ms = state_doc.to_dict().get('lastActive', 0)
+            if last_active_ms:
+                last_active_dt = datetime.fromtimestamp(last_active_ms / 1000.0)
+                
+                # Límite: las 2:00 AM del día actual
+                limite_hoy_2am = datetime.combine(now.date(), dt_time(2, 0))
+                
+                if last_active_dt < limite_hoy_2am and now > limite_hoy_2am:
+                    await clear_all_data()
+                else:
+                    print(" [SISTEMA] Continuidad detectada. No se requiere limpieza.")
+    except Exception as e:
+        print(f" Error al comprobar sesión: {e}")
+
 async def reset_song_and_tokens(filename):
     """Limpieza absoluta de votos y tokens de usuario en listas."""
     try:
@@ -50,7 +105,7 @@ async def reset_song_and_tokens(filename):
         users_ref = db.collection('users')
         batch = db.batch()
         c = 0
-        
+       
         # 1. Liberar el token de "Propuestas" a quienes la añadieron
         prop_docs = users_ref.where("proposals", "array_contains", filename).stream()
         for udoc in prop_docs:
@@ -58,7 +113,7 @@ async def reset_song_and_tokens(filename):
             c += 1
             if c >= 400:
                 batch.commit(); batch = db.batch(); c = 0
-                
+               
         # 2. Liberar el token de "Votos" a quienes la votaron
         vote_docs = users_ref.where("votes", "array_contains", filename).stream()
         for udoc in vote_docs:
@@ -66,7 +121,7 @@ async def reset_song_and_tokens(filename):
             c += 1
             if c >= 400:
                 batch.commit(); batch = db.batch(); c = 0
-                
+               
         if c > 0: batch.commit()
         print(f" [LIMPIEZA] Votos y tokens reseteados para {filename}")
     except Exception as e: 
@@ -128,6 +183,10 @@ async def progress_tracker(ws, current_playing_file):
 
 async def main():
     local_filenames = sync_local_files()
+    
+    # Comprobar si es necesario resetear datos por nueva jornada
+    await check_for_new_session()
+    
     uri = f"ws://{KODI_USER}:{KODI_PASS}@{KODI_IP}:{KODI_PORT}/jsonrpc"
     async with websockets.connect(uri) as ws:
         print("Conectado a Kodi.")
