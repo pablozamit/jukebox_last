@@ -24,46 +24,61 @@ def clean_title(filename):
     return name[:-4] if name.lower().endswith(".mp4") else name
 
 def sync_local_files():
-    songs_ref = db.collection('songs')
-    existing_docs = {doc.id for doc in songs_ref.select([]).stream()} 
     search_path = os.path.join(VIDEO_FOLDER_PATH, "*.mp4")
     local_filenames = [os.path.basename(f) for f in glob.glob(search_path)]
-    batch = db.batch()
-    count = 0
+   
+    # Empaquetar todo el catálogo en una sola lista para el Documento Único
+    catalog_list = []
     for fname in local_filenames:
-        if fname not in existing_docs:
-            batch.set(songs_ref.document(fname), {'title': clean_title(fname), 'votes': 0, 'firstVotedAt': 0, 'available': True})
-            count += 1
-            if count >= 400:
-                batch.commit(); batch = db.batch(); count = 0
-    if count > 0: batch.commit()
+        catalog_list.append({
+            'id': fname,
+            'title': clean_title(fname),
+            'available': True
+        })
+   
+    # Guardar la lista entera en 1 sola operación/documento
+    db.collection('catalog').document('full_list').set({'songs': catalog_list})
+    print(f"Catálogo sincronizado: {len(catalog_list)} canciones guardadas en 1 solo documento.")
     return local_filenames
 
 async def reset_song_and_tokens(filename):
-    """Limpieza absoluta de votos y tokens de usuario."""
+    """Limpieza absoluta de votos y tokens de usuario en listas."""
     try:
-        db.collection('songs').document(filename).update({'votes': 0, 'firstVotedAt': 0})
+        # Borramos el documento de la cola en lugar de ponerlo a 0, para no acumular basura
+        db.collection('songs').document(filename).delete()
+       
         users_ref = db.collection('users')
-        user_docs = users_ref.where("activeVote", "==", filename).stream()
         batch = db.batch()
         c = 0
-        for udoc in user_docs:
-            batch.update(udoc.reference, {'activeVote': None})
+        
+        # 1. Liberar el token de "Propuestas" a quienes la añadieron
+        prop_docs = users_ref.where("proposals", "array_contains", filename).stream()
+        for udoc in prop_docs:
+            batch.update(udoc.reference, {'proposals': firestore.ArrayRemove([filename])})
             c += 1
             if c >= 400:
                 batch.commit(); batch = db.batch(); c = 0
+                
+        # 2. Liberar el token de "Votos" a quienes la votaron
+        vote_docs = users_ref.where("votes", "array_contains", filename).stream()
+        for udoc in vote_docs:
+            batch.update(udoc.reference, {'votes': firestore.ArrayRemove([filename])})
+            c += 1
+            if c >= 400:
+                batch.commit(); batch = db.batch(); c = 0
+                
         if c > 0: batch.commit()
         print(f" [LIMPIEZA] Votos y tokens reseteados para {filename}")
-    except Exception as e: print(f" Error limpieza: {e}")
+    except Exception as e: 
+        print(f" Error limpieza: {e}")
 
 async def play_song_on_kodi(ws, filename, current_playing_file):
     current_playing_file[0] = filename
-    # LIMPIEZA INMEDIATA: No esperamos a que Kodi diga OnPlay
     await reset_song_and_tokens(filename)
-    
-    filepath = os.path.join(VIDEO_FOLDER_PATH, filename).replace("\\", "/") 
+   
+    filepath = os.path.join(VIDEO_FOLDER_PATH, filename).replace("\\", "/")
     payload = {"jsonrpc": "2.0", "method": "Player.Open", "params": { "item": { "file": filepath } }, "id": 1}
-    
+   
     db.collection('state').document('nowPlaying').set({'title': clean_title(filename), 'currentTime': 0, 'totalTime': 0})
     await ws.send(json.dumps(payload))
     print(f" >>> REPRODUCIENDO: {clean_title(filename)}")
@@ -99,14 +114,15 @@ async def progress_tracker(ws, current_playing_file):
             if current_playing_file[0]:
                 await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetProperties", "params": {"playerid": 1, "properties": ["time", "totaltime"]}, "id": "progress"}))
         except: pass
-        await asyncio.sleep(1)
+        # Frecuencia reducida a 5 segundos (Plan Blaze)
+        await asyncio.sleep(5)
 
 async def main():
     local_filenames = sync_local_files()
     uri = f"ws://{KODI_USER}:{KODI_PASS}@{KODI_IP}:{KODI_PORT}/jsonrpc"
     async with websockets.connect(uri) as ws:
         print("Conectado a Kodi.")
-        current_playing_file = [None] 
+        current_playing_file = [None]
         asyncio.create_task(progress_tracker(ws, current_playing_file))
         asyncio.create_task(admin_commands_listener(ws, local_filenames, current_playing_file))
         await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetActivePlayers", "id": "check_active"}))
