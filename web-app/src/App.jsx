@@ -140,11 +140,7 @@ export default function App() {
 
     if (isProposal) {
       if (userProposals.length >= 3) {
-        alert(t.alreadyVoted); // We might need a better message for limits
-        return;
-      }
-      if (userProposals.includes(song.id)) {
-        alert(t.voted);
+        alert(t.alreadyVoted);
         return;
       }
     } else {
@@ -152,17 +148,17 @@ export default function App() {
         alert(t.alreadyVoted);
         return;
       }
-      if (userVotes.includes(song.id)) {
-        alert(t.voted);
-        return;
-      }
     }
 
     try {
       const userRef = doc(db, 'users', userId);
-      await setDoc(userRef, {
-        [isProposal ? 'proposals' : 'votes']: arrayUnion(song.id)
-      }, { merge: true });
+
+      // Guardamos el array permitiendo duplicados en lugar de usar arrayUnion
+      if (isProposal) {
+        await setDoc(userRef, { proposals: [...userProposals, song.id] }, { merge: true });
+      } else {
+        await setDoc(userRef, { votes: [...userVotes, song.id] }, { merge: true });
+      }
 
       const songRef = doc(db, 'songs', song.id);
       await setDoc(songRef, {
@@ -435,7 +431,6 @@ export default function App() {
             filteredSongs.map((song) => {
               const isTop = song.id === topSongId && song.votes > 0;
               const isNowPlaying = nowPlaying?.title === song.title;
-              const hasVotedThis = userVotes.includes(song.id) || userProposals.includes(song.id);
               const isProposal = song.votes === 0;
               const limitReached = isProposal ? userProposals.length >= 3 : userVotes.length >= 5;
               
@@ -466,29 +461,23 @@ export default function App() {
                   {/* Actions */}
                   <button
                     onClick={() => handleVote(song)}
-                    disabled={isNowPlaying || hasVotedThis || limitReached || !isBridgeActive || isCoolingDown}
+                    disabled={isNowPlaying || limitReached || !isBridgeActive || isCoolingDown}
                     className={`shrink-0 flex items-center justify-center h-10 px-4 rounded-lg font-medium text-sm transition-all ${
-                      isNowPlaying || !isBridgeActive || isCoolingDown
+                      isNowPlaying || !isBridgeActive || isCoolingDown || limitReached
                         ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
-                        : hasVotedThis
-                          ? 'bg-brand-neon-purple/20 text-brand-neon-purple cursor-not-allowed'
-                          : limitReached
-                            ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
-                            : song.votes === 0
-                              ? 'bg-zinc-800 text-white hover:bg-zinc-700 active:bg-zinc-600'
-                              : 'bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/20 active:bg-brand-gold/30'
+                        : song.votes === 0
+                          ? 'bg-zinc-800 text-white hover:bg-zinc-700 active:bg-zinc-600'
+                          : 'bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/20 active:bg-brand-gold/30'
                     }`}
                   >
-                    {!isNowPlaying && !hasVotedThis && !limitReached && !isCoolingDown && isBridgeActive && song.votes === 0 && <Plus size={16} className="mr-1" />}
+                    {!isNowPlaying && !limitReached && !isCoolingDown && isBridgeActive && song.votes === 0 && <Plus size={16} className="mr-1" />}
                     {isNowPlaying
                       ? t.nowPlayingBtn
                       : isCoolingDown
                         ? `⏳ ${minutesLeft} ${t.cooldown}`
-                        : hasVotedThis
-                          ? t.voted
-                          : song.votes === 0
-                            ? t.add
-                            : t.voteButton}
+                        : song.votes === 0
+                          ? t.add
+                          : t.voteButton}
                   </button>
                 </div>
               );
