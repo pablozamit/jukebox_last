@@ -50,7 +50,32 @@ export const translations = {
       }
     ],
     next: "Siguiente",
-    finish: "Entendido"
+    finish: "Entendido",
+    onboarding: {
+      title: "Bienvenido a La Catrina",
+      step1: {
+        title: "¿Cómo te llamas?",
+        placeholder: "Tu nombre rockero...",
+        randomBtn: "Generar nombre rockero",
+      },
+      step2: {
+        title: "Elige tu avatar",
+      },
+      step3: {
+        title: "¿Dónde estás?",
+        subtitle: "Haz clic en el mapa para marcar tu posición",
+        ghostBtn: "Prefiero ser un fantasma (ocultar mi posición)",
+      },
+      step4: {
+        title: "Elige tu color",
+      },
+      save: "Entrar al Local",
+    },
+    liveMap: {
+      title: "Mapa en Vivo",
+      activeNow: "Rockeando ahora",
+      ghostMode: "Modo Fantasma",
+    }
   },
   en: {
     loading: "Loading...",
@@ -103,6 +128,31 @@ export const translations = {
       }
     ],
     next: "Next",
-    finish: "Got it"
+    finish: "Got it",
+    onboarding: {
+      title: "Welcome to La Catrina",
+      step1: {
+        title: "What's your name?",
+        placeholder: "Your rockstar name...",
+        randomBtn: "Generate rockstar name",
+      },
+      step2: {
+        title: "Choose your avatar",
+      },
+      step3: {
+        title: "Where are you?",
+        subtitle: "Click on the map to mark your position",
+        ghostBtn: "I'd rather be a ghost (hide my position)",
+      },
+      step4: {
+        title: "Choose your color",
+      },
+      save: "Enter the Bar",
+    },
+    liveMap: {
+      title: "Live Map",
+      activeNow: "Rocking now",
+      ghostMode: "Ghost Mode",
+    }
   }
 };
