@@ -267,37 +267,43 @@ export default function App() {
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans selection:bg-brand-neon-purple/30">
       
       {/* Header Fijo */}
-      <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-brand-gold/20 p-4 shrink-0 flex flex-col items-center justify-center">
-        <div className="absolute top-4 right-4 flex items-center gap-3">
+      <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-brand-gold/20 p-2 sm:p-4 shrink-0">
+        <div className="max-w-lg mx-auto flex items-center justify-between gap-2">
+          {/* Stats button on the left to balance and avoid overlap */}
           <button
             onClick={() => setShowStats(true)}
-            className="text-brand-gold hover:text-white transition-colors"
+            className="text-brand-gold hover:text-white transition-colors p-2"
             title={t.statsTitle}
           >
             <BarChart3 size={24} />
           </button>
-          <div className="w-px h-6 bg-brand-gold/20 mx-1"></div>
-          <button
-            onClick={() => setLang('es')}
-            className={`text-xl transition-opacity ${lang === 'es' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
-            title="Español"
-          >
-            🇪🇸
-          </button>
-          <button
-            onClick={() => setLang('en')}
-            className={`text-xl transition-opacity ${lang === 'en' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
-            title="English"
-          >
-            🇺🇸
-          </button>
+
+          <div className="flex flex-col items-center text-center min-w-0">
+            <h1 className="font-serif text-xl sm:text-3xl font-black text-brand-gold tracking-widest uppercase leading-tight truncate w-full">
+              La Catrina
+            </h1>
+            <h2 className="font-script text-lg sm:text-2xl text-brand-gold-dark -mt-1 sm:-mt-2 truncate w-full">
+              {t.subtitle}
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-1 sm:gap-2">
+            <button
+              onClick={() => setLang('es')}
+              className={`text-lg sm:text-xl transition-opacity ${lang === 'es' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
+              title="Español"
+            >
+              🇪🇸
+            </button>
+            <button
+              onClick={() => setLang('en')}
+              className={`text-lg sm:text-xl transition-opacity ${lang === 'en' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
+              title="English"
+            >
+              🇺🇸
+            </button>
+          </div>
         </div>
-        <h1 className="font-serif text-3xl font-black text-brand-gold tracking-widest uppercase mb-1">
-          La Catrina
-        </h1>
-        <h2 className="font-script text-2xl text-brand-gold-dark -mt-2">
-          {t.subtitle}
-        </h2>
       </header>
 
       <main className="p-4 space-y-6 max-w-lg mx-auto">
