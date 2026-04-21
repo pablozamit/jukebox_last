@@ -79,7 +79,13 @@ async def play_song_on_kodi(ws, filename, current_playing_file):
     filepath = os.path.join(VIDEO_FOLDER_PATH, filename).replace("\\", "/")
     payload = {"jsonrpc": "2.0", "method": "Player.Open", "params": { "item": { "file": filepath } }, "id": 1}
    
-    db.collection('state').document('nowPlaying').set({'title': clean_title(filename), 'currentTime': 0, 'totalTime': 0})
+    db.collection('state').document('nowPlaying').set({
+        'title': clean_title(filename),
+        'currentTime': 0,
+        'totalTime': 0,
+        'lastActive': int(time.time() * 1000)
+    })
+    db.collection('state').document('cooldowns').set({filename: int(time.time() * 1000)}, merge=True)
     await ws.send(json.dumps(payload))
     print(f" >>> REPRODUCIENDO: {clean_title(filename)}")
 
@@ -113,6 +119,9 @@ async def progress_tracker(ws, current_playing_file):
         try:
             if current_playing_file[0]:
                 await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetProperties", "params": {"playerid": 1, "properties": ["time", "totaltime"]}, "id": "progress"}))
+            else:
+                # Si no hay nada sonando, igual actualizamos lastActive para que la web sepa que el puente vive
+                db.collection('state').document('nowPlaying').set({'lastActive': int(time.time() * 1000)}, merge=True)
         except: pass
         # Frecuencia reducida a 5 segundos (Plan Blaze)
         await asyncio.sleep(5)
@@ -143,6 +152,11 @@ async def main():
                 if "time" in res and current_playing_file[0]:
                     cur = res["time"].get("seconds",0) + res["time"].get("minutes",0)*60
                     tot = res["totaltime"].get("seconds",0) + res["totaltime"].get("minutes",0)*60
-                    db.collection('state').document('nowPlaying').set({'title': clean_title(current_playing_file[0]), 'currentTime': cur, 'totalTime': tot})
+                    db.collection('state').document('nowPlaying').set({
+                        'title': clean_title(current_playing_file[0]),
+                        'currentTime': cur,
+                        'totalTime': tot,
+                        'lastActive': int(time.time() * 1000)
+                    })
 
 if __name__ == "__main__": asyncio.run(main())

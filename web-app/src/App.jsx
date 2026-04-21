@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, arrayUnion } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp } from 'lucide-react';
+import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3 } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
 
@@ -14,6 +14,8 @@ export default function App() {
   const [userProposals, setUserProposals] = useState([]);
   const [userVotes, setUserVotes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [cooldowns, setCooldowns] = useState({});
+  const [currentTime, setCurrentTime] = useState(Date.now());
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
   const [showHelp, setShowHelp] = useState(false);
   const [helpStep, setHelpStep] = useState(0);
@@ -81,6 +83,25 @@ export default function App() {
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  // Cooldowns listener
+  useEffect(() => {
+    const cooldownsRef = doc(db, 'state', 'cooldowns');
+    const unsubscribe = onSnapshot(cooldownsRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setCooldowns(docSnap.data());
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Clock for force re-render and time calculations
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 10000);
+    return () => clearInterval(timer);
   }, []);
 
   // 1. Static Catalog Listener
@@ -202,6 +223,19 @@ export default function App() {
     return `${m}:${s}`;
   };
 
+  const isBridgeActive = nowPlaying?.lastActive ? (currentTime - nowPlaying.lastActive < 300000) : false;
+
+  const checkIsStaffHours = () => {
+    const now = new Date(currentTime);
+    const day = now.getDay();
+    const time = now.getHours() + now.getMinutes() / 60;
+
+    const isEveningOpen = day >= 1 && day <= 6 && time >= 19;
+    const isMorningOpen = (day >= 2 || day === 0) && time <= 1.5;
+
+    return isEveningOpen || isMorningOpen;
+  };
+
   if (loading) {
     return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-brand-gold">{t.loading}</div>;
   }
@@ -249,31 +283,51 @@ export default function App() {
         </button>
 
         {/* Ahora Sonando */}
-        <section className="bg-zinc-900 border border-brand-neon-purple/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(176,38,255,0.15)] relative overflow-hidden">
+        <section className="bg-zinc-900 border border-brand-neon-purple/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(176,38,255,0.15)] relative overflow-hidden text-center">
           <div className="absolute top-0 right-0 w-32 h-32 bg-brand-neon-purple/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
           
-          <div className="flex items-center gap-2 text-brand-neon-purple font-semibold uppercase tracking-wider text-xs mb-3">
-            <Music2 size={16} className="animate-pulse" />
+          <div className="flex items-center justify-center gap-2 text-brand-neon-purple font-semibold uppercase tracking-wider text-xs mb-3">
+            <Music2 size={16} className={isBridgeActive ? "animate-pulse" : ""} />
             {t.nowPlaying}
           </div>
           
-          <h3 className="text-xl font-bold text-white mb-6 line-clamp-2 leading-tight">
-            {nowPlaying ? nowPlaying.title : t.autoMode}
-          </h3>
-          
-          {/* Progress Bar */}
-          <div className="space-y-2">
-            <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-brand-neon-purple to-brand-neon-green rounded-full transition-all duration-1000 ease-linear"
-                style={{ width: `${calculateProgress()}%` }}
-              ></div>
+          {isBridgeActive ? (
+            <>
+              <h3 className="text-xl font-bold text-white mb-2 line-clamp-2 leading-tight">
+                {nowPlaying?.title || t.autoMode}
+              </h3>
+
+              <Disc3 size={48} className="animate-[spin_4s_linear_infinite] text-brand-neon-purple mx-auto my-4 opacity-80" />
+
+              {/* Progress Bar */}
+              <div className="space-y-2 text-left">
+                <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-brand-neon-purple to-brand-neon-green rounded-full transition-all duration-1000 ease-linear"
+                    style={{ width: `${calculateProgress()}%` }}
+                  ></div>
+                </div>
+                <div className="flex justify-between text-xs text-zinc-500 font-medium">
+                  <span>{nowPlaying ? formatTime(nowPlaying.currentTime) : '00:00'}</span>
+                  <span>{nowPlaying ? formatTime(nowPlaying.totalTime) : '00:00'}</span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="py-4">
+              {checkIsStaffHours() ? (
+                <>
+                  <h3 className="text-xl font-bold text-white mb-2">{t.staffModeTitle}</h3>
+                  <p className="text-zinc-400 text-sm">{t.staffModeDesc}</p>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-xl font-bold text-white mb-2">{t.closedTitle}</h3>
+                  <p className="text-zinc-400 text-sm">{t.closedDesc}</p>
+                </>
+              )}
             </div>
-            <div className="flex justify-between text-xs text-zinc-500 font-medium">
-              <span>{nowPlaying ? formatTime(nowPlaying.currentTime) : '00:00'}</span>
-              <span>{nowPlaying ? formatTime(nowPlaying.totalTime) : '00:00'}</span>
-            </div>
-          </div>
+          )}
         </section>
 
         {/* User Status Banner (Sticky under header) */}
@@ -329,10 +383,13 @@ export default function App() {
                 </div>
                 <button
                   onClick={handleSuggest}
+                  disabled={!isBridgeActive}
                   className={`w-full py-3 rounded-xl font-bold transition-all ${
                     suggested
                       ? 'bg-brand-neon-green/20 text-brand-neon-green'
-                      : 'bg-zinc-800 text-white hover:bg-zinc-700'
+                      : !isBridgeActive
+                        ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                        : 'bg-zinc-800 text-white hover:bg-zinc-700'
                   }`}
                 >
                   {suggested ? t.suggestSuccess : t.suggestButton}
@@ -349,6 +406,10 @@ export default function App() {
               const isProposal = song.votes === 0;
               const limitReached = isProposal ? userProposals.length >= 3 : userVotes.length >= 5;
               
+              const songCooldown = cooldowns[song.id];
+              const isCoolingDown = songCooldown && (currentTime - songCooldown < 3600000);
+              const minutesLeft = isCoolingDown ? Math.ceil((3600000 - (currentTime - songCooldown)) / 60000) : 0;
+
               return (
                 <div 
                   key={song.id} 
@@ -372,9 +433,9 @@ export default function App() {
                   {/* Actions */}
                   <button
                     onClick={() => handleVote(song)}
-                    disabled={isNowPlaying || hasVotedThis || limitReached}
+                    disabled={isNowPlaying || hasVotedThis || limitReached || !isBridgeActive || isCoolingDown}
                     className={`shrink-0 flex items-center justify-center h-10 px-4 rounded-lg font-medium text-sm transition-all ${
-                      isNowPlaying
+                      isNowPlaying || !isBridgeActive || isCoolingDown
                         ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
                         : hasVotedThis
                           ? 'bg-brand-neon-purple/20 text-brand-neon-purple cursor-not-allowed'
@@ -385,14 +446,16 @@ export default function App() {
                               : 'bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/20 active:bg-brand-gold/30'
                     }`}
                   >
-                    {!isNowPlaying && !hasVotedThis && !limitReached && song.votes === 0 && <Plus size={16} className="mr-1" />}
+                    {!isNowPlaying && !hasVotedThis && !limitReached && !isCoolingDown && isBridgeActive && song.votes === 0 && <Plus size={16} className="mr-1" />}
                     {isNowPlaying
                       ? t.nowPlayingBtn
-                      : hasVotedThis
-                        ? t.voted
-                        : song.votes === 0
-                          ? t.add
-                          : t.voteButton}
+                      : isCoolingDown
+                        ? `⏳ ${minutesLeft} ${t.cooldown}`
+                        : hasVotedThis
+                          ? t.voted
+                          : song.votes === 0
+                            ? t.add
+                            : t.voteButton}
                   </button>
                 </div>
               );
