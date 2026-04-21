@@ -34,7 +34,7 @@ export const translations = {
     helpSteps: [
       {
         title: "¡Bienvenido!",
-        text: "En La Catrina tú eliges la música. Tienes 1 token virtual para votar."
+        text: "En La Catrina tú eliges la música. Tienes 3 propuestas y 5 votos disponibles."
       },
       {
         title: "Busca tu canción",
@@ -42,7 +42,7 @@ export const translations = {
       },
       {
         title: "Vota o Propón",
-        text: "Usa tu token para proponer una canción nueva o votar por una que ya esté en la cola."
+        text: "Usa tus propuestas para añadir canciones nuevas y tus votos para apoyar las que ya están en cola."
       },
       {
         title: "Recupera tu token",
@@ -50,7 +50,14 @@ export const translations = {
       }
     ],
     next: "Siguiente",
-    finish: "Entendido"
+    finish: "Entendido",
+    nowPlayingBtn: "Sonando",
+    suggestTitle: "¿No encuentras tu canción?",
+    suggestDesc: "Pídele a La Catrina que la añada al catálogo:",
+    suggestButton: "Enviar sugerencia",
+    suggestSuccess: "¡Sugerencia enviada!",
+    proposalsLabel: "Propuestas",
+    votesLabel: "Votos"
   },
   en: {
     loading: "Loading...",
@@ -87,7 +94,7 @@ export const translations = {
     helpSteps: [
       {
         title: "Welcome!",
-        text: "At La Catrina you choose the music. You have 1 virtual token to vote."
+        text: "At La Catrina you choose the music. You have 3 proposals and 5 votes available."
       },
       {
         title: "Search your song",
@@ -95,7 +102,7 @@ export const translations = {
       },
       {
         title: "Vote or Propose",
-        text: "Use your token to propose a new song or vote for one already in the queue."
+        text: "Use your proposals to add new songs and your votes to support those already in the queue."
       },
       {
         title: "Get your token back",
@@ -103,6 +110,13 @@ export const translations = {
       }
     ],
     next: "Next",
-    finish: "Got it"
+    finish: "Got it",
+    nowPlayingBtn: "Playing",
+    suggestTitle: "Can't find your song?",
+    suggestDesc: "Ask La Catrina to add it to the catalog:",
+    suggestButton: "Send suggestion",
+    suggestSuccess: "Suggestion sent!",
+    proposalsLabel: "Proposals",
+    votesLabel: "Votes"
   }
 };
