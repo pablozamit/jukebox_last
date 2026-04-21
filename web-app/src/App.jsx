@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle } from 'lucide-react';
+import { Search, Flame, Plus, Music2, X, HelpCircle, Map as MapIcon } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
+import Onboarding from './Onboarding';
+import LiveMap from './LiveMap';
 
 export default function App() {
   const [catalog, setCatalog] = useState([]);
@@ -12,10 +14,12 @@ export default function App() {
   const [nowPlaying, setNowPlaying] = useState(null);
   const [userId, setUserId] = useState(null);
   const [userActiveVote, setUserActiveVote] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
   const [showHelp, setShowHelp] = useState(false);
   const [helpStep, setHelpStep] = useState(0);
+  const [showMap, setShowMap] = useState(false);
 
   const t = translations[lang];
 
@@ -39,7 +43,9 @@ export default function App() {
 
         const unsubUser = onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
-            setUserActiveVote(docSnap.data().activeVote);
+            const data = docSnap.data();
+            setUserActiveVote(data.activeVote);
+            setUserProfile(data);
           }
         });
         return () => unsubUser();
@@ -86,6 +92,15 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  const recordActivity = async () => {
+    const userRef = doc(db, 'users', userId);
+    await setDoc(userRef, { lastActive: Date.now() }, { merge: true });
+    await addDoc(collection(db, 'live_events'), {
+      userId: userId,
+      timestamp: Date.now()
+    });
+  };
+
   const handleVote = async (song) => {
     if (userActiveVote) {
       alert(t.alreadyVoted);
@@ -99,11 +114,10 @@ export default function App() {
 
     try {
       const userRef = doc(db, 'users', userId);
-      // Usamos setDoc para asegurar que el perfil se cree si no existe
       await setDoc(userRef, { activeVote: song.id }, { merge: true });
+      await recordActivity();
 
       const songRef = doc(db, 'songs', song.id);
-      // Cambiamos a setDoc con merge: true para crear el doc si no existe
       await setDoc(songRef, {
         title: song.title,
         votes: increment(1),
@@ -115,6 +129,24 @@ export default function App() {
     } catch (error) {
       alert(t.firebaseError + error.message);
       console.error(error);
+    }
+  };
+
+  const handleSuggest = async () => {
+    if (!searchTerm.trim()) return;
+    if (!userId) return;
+
+    try {
+      await addDoc(collection(db, 'suggestions'), {
+        userId,
+        text: searchTerm,
+        timestamp: Date.now()
+      });
+      await recordActivity();
+      alert(lang === 'es' ? "¡Sugerencia enviada!" : "Suggestion sent!");
+      setSearchTerm('');
+    } catch (error) {
+      console.error("Error suggesting:", error);
     }
   };
 
@@ -149,6 +181,18 @@ export default function App() {
 
   if (loading) {
     return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-brand-gold">{t.loading}</div>;
+  }
+
+  // Check if onboarding is needed
+  const needsOnboarding = userId && (
+    !userProfile?.name ||
+    !userProfile?.avatar ||
+    !userProfile?.color ||
+    !('x' in (userProfile || {}))
+  );
+
+  if (needsOnboarding) {
+    return <Onboarding userId={userId} onComplete={() => {}} t={t} />;
   }
 
   const topSongId = mergedSongs.length > 0 && mergedSongs[0].votes > 0 ? mergedSongs[0].id : null;
@@ -257,7 +301,15 @@ export default function App() {
         {/* Catalog */}
         <section className="space-y-3">
           {filteredSongs.length === 0 ? (
-            <p className="text-center text-zinc-600 py-10">{t.noResults}</p>
+            <div className="text-center py-10 space-y-4">
+              <p className="text-zinc-600">{t.noResults}</p>
+              <button
+                onClick={handleSuggest}
+                className="bg-brand-neon-purple/20 text-brand-neon-purple border border-brand-neon-purple/30 px-6 py-2 rounded-xl font-bold hover:bg-brand-neon-purple/30 transition-all"
+              >
+                {lang === 'es' ? "🚀 Sugerir esta canción" : "🚀 Suggest this song"}
+              </button>
+            </div>
           ) : (
             filteredSongs.map((song) => {
               const isTop = song.id === topSongId && song.votes > 0;
@@ -315,6 +367,19 @@ export default function App() {
       </main>
 
       {/* Help Modal */}
+      {/* Floating Map Button */}
+      <button
+        onClick={() => setShowMap(true)}
+        className="fixed bottom-28 right-6 z-40 w-14 h-14 bg-brand-neon-purple text-white rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(176,38,255,0.6)] hover:scale-110 active:scale-95 transition-all"
+      >
+        <MapIcon size={28} />
+      </button>
+
+      {/* Live Map Modal */}
+      {showMap && (
+        <LiveMap onClose={() => setShowMap(false)} t={t} />
+      )}
+
       {showHelp && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-sm">
           <div className="bg-zinc-900 border border-brand-gold/30 rounded-3xl p-8 max-w-sm w-full shadow-[0_0_50px_rgba(255,204,0,0.1)] relative">

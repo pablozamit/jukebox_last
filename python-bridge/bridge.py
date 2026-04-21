@@ -56,9 +56,95 @@ async def reset_song_and_tokens(filename):
         print(f" [LIMPIEZA] Votos y tokens reseteados para {filename}")
     except Exception as e: print(f" Error limpieza: {e}")
 
+def clear_all_data():
+    """Limpieza diaria de madrugada (2:00 AM): Canciones, Usuarios, Eventos y Estadísticas."""
+    print("\n >>> INICIANDO LIMPIEZA DE MADRUGADA...")
+    now = time.localtime()
+
+    try:
+        # 1. Resetear todas las canciones de la cola activa
+        songs_ref = db.collection('songs')
+        song_docs = songs_ref.where('votes', '>', 0).stream()
+        batch = db.batch()
+        count_songs = 0
+        for sdoc in song_docs:
+            batch.update(sdoc.reference, {'votes': 0, 'firstVotedAt': 0})
+            count_songs += 1
+            if count_songs % 400 == 0: batch.commit(); batch = db.batch()
+        if count_songs % 400 != 0: batch.commit()
+        print(f" [OK] {count_songs} canciones reseteadas.")
+
+        # 2. Resetear todos los usuarios
+        users_ref = db.collection('users')
+        user_docs = users_ref.stream()
+        batch = db.batch()
+        count_users = 0
+        for udoc in user_docs:
+            batch.update(udoc.reference, {
+                'activeVote': None,
+                'proposals': [],
+                'votes': [],
+                'lastActive': 0
+            })
+            count_users += 1
+            if count_users % 400 == 0: batch.commit(); batch = db.batch()
+        if count_users % 400 != 0: batch.commit()
+        print(f" [OK] {count_users} usuarios reseteados.")
+
+        # 3. Vaciar live_events
+        events_ref = db.collection('live_events')
+        event_docs = events_ref.stream()
+        batch = db.batch()
+        count_events = 0
+        for edoc in event_docs:
+            batch.delete(edoc.reference)
+            count_events += 1
+            if count_events % 400 == 0: batch.commit(); batch = db.batch()
+        if count_events % 400 != 0: batch.commit()
+        print(f" [OK] {count_events} eventos en vivo eliminados.")
+
+        # 4. Limpieza cíclica de estadísticas
+        # Hoy: Siempre
+        # Semana: Lunes (tm_wday == 0)
+        # Mes: Día 1 (tm_mday == 1)
+        stats_ref = db.collection('statistics')
+
+        def delete_collection(coll_name):
+            docs = stats_ref.document(coll_name).collection('data').stream()
+            b = db.batch()
+            count = 0
+            for d in docs:
+                b.delete(d.reference)
+                count += 1
+                if count % 400 == 0: b.commit(); b = db.batch()
+            if count % 400 != 0: b.commit()
+            return count
+
+        c_hoy = delete_collection('hoy')
+        print(f" [STATS] Hoy reseteado ({c_hoy} docs).")
+
+        if now.tm_wday == 0:
+            c_sem = delete_collection('semana')
+            print(f" [STATS] Semana reseteada ({c_sem} docs).")
+
+        if now.tm_mday == 1:
+            c_mes = delete_collection('mes')
+            print(f" [STATS] Mes reseteado ({c_mes} docs).")
+
+    except Exception as e:
+        print(f" !!! ERROR CRÍTICO EN LIMPIEZA: {e}")
+
+async def daily_cleanup_task():
+    """Bucle que comprueba la hora para disparar la limpieza."""
+    while True:
+        now = time.localtime()
+        if now.tm_hour == 2 and now.tm_min == 0:
+            clear_all_data()
+            await asyncio.sleep(61)
+        await asyncio.sleep(30)
+
 async def play_song_on_kodi(ws, filename, current_playing_file):
     current_playing_file[0] = filename
-    # LIMPIEZA INMEDIATA: No esperamos a que Kodi diga OnPlay
     await reset_song_and_tokens(filename)
     
     filepath = os.path.join(VIDEO_FOLDER_PATH, filename).replace("\\", "/") 
@@ -105,10 +191,11 @@ async def main():
     local_filenames = sync_local_files()
     uri = f"ws://{KODI_USER}:{KODI_PASS}@{KODI_IP}:{KODI_PORT}/jsonrpc"
     async with websockets.connect(uri) as ws:
-        print("Conectado a Kodi.")
+        print("Puente Jukebox ACTIVADO.")
         current_playing_file = [None] 
         asyncio.create_task(progress_tracker(ws, current_playing_file))
         asyncio.create_task(admin_commands_listener(ws, local_filenames, current_playing_file))
+        asyncio.create_task(daily_cleanup_task())
         await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetActivePlayers", "id": "check_active"}))
 
         while True:
