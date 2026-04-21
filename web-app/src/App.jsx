@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, arrayUnion } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3 } from 'lucide-react';
+import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3 } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
 
@@ -21,6 +21,7 @@ export default function App() {
   const [helpStep, setHelpStep] = useState(0);
   const [showScroll, setShowScroll] = useState(false);
   const [suggested, setSuggested] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   const t = translations[lang];
 
@@ -170,6 +171,30 @@ export default function App() {
         firstVotedAt: isProposal ? Date.now() : (activeQueue[song.id]?.firstVotedAt || Date.now())
       }, { merge: true });
 
+      // Update Statistics
+      const now = new Date();
+      let hour = now.getHours();
+      let day = now.getDay();
+
+      // 2 AM Offset Logic
+      if (hour < 2) {
+        day = (day === 0) ? 6 : day - 1;
+      }
+
+      const statsRef = collection(db, 'statistics');
+      const songIncrement = { [song.id]: increment(1) };
+      const hourKey = hour.toString();
+      const dayKey = day.toString();
+
+      await Promise.all([
+        setDoc(doc(statsRef, 'votes_hoy'), songIncrement, { merge: true }),
+        setDoc(doc(statsRef, 'votes_semana'), songIncrement, { merge: true }),
+        setDoc(doc(statsRef, 'votes_mes'), songIncrement, { merge: true }),
+        setDoc(doc(statsRef, 'votes_total'), songIncrement, { merge: true }),
+        setDoc(doc(statsRef, 'time_hoy'), { [hourKey]: increment(1) }, { merge: true }),
+        setDoc(doc(statsRef, 'time_semana'), { [dayKey]: increment(1) }, { merge: true })
+      ]);
+
       setSearchTerm('');
       console.log("Acción registrada con éxito");
     } catch (error) {
@@ -247,7 +272,15 @@ export default function App() {
       
       {/* Header Fijo */}
       <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-brand-gold/20 p-4 shrink-0 flex flex-col items-center justify-center">
-        <div className="absolute top-4 right-4 flex gap-2">
+        <div className="absolute top-4 right-4 flex items-center gap-3">
+          <button
+            onClick={() => setShowStats(true)}
+            className="text-brand-gold hover:text-white transition-colors"
+            title={t.statsTitle}
+          >
+            <BarChart3 size={24} />
+          </button>
+          <div className="w-px h-6 bg-brand-gold/20 mx-1"></div>
           <button
             onClick={() => setLang('es')}
             className={`text-xl transition-opacity ${lang === 'es' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
@@ -525,6 +558,192 @@ export default function App() {
           <ArrowUp size={24} />
         </button>
       )}
+      {showStats && (
+        <StatsModal
+          onClose={() => setShowStats(false)}
+          t={t}
+          catalog={catalog}
+        />
+      )}
+    </div>
+  );
+}
+
+function StatsModal({ onClose, t, catalog }) {
+  const [range, setRange] = useState('hoy'); // hoy, semana, mes, total
+  const [data, setData] = useState({ plays: {}, votes: {}, time: {} });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      setLoading(true);
+      try {
+        const statsRef = collection(db, 'statistics');
+        const docsToFetch = [
+          `plays_${range}`,
+          `votes_${range}`,
+        ];
+        if (range === 'hoy' || range === 'semana') {
+          docsToFetch.push(`time_${range}`);
+        }
+
+        const results = await Promise.all(
+          docsToFetch.map(id => getDoc(doc(statsRef, id)))
+        );
+
+        const newData = { plays: {}, votes: {}, time: {} };
+        results.forEach((docSnap, index) => {
+          if (docSnap.exists()) {
+            const id = docsToFetch[index];
+            if (id.startsWith('plays')) newData.plays = docSnap.data();
+            else if (id.startsWith('votes')) newData.votes = docSnap.data();
+            else if (id.startsWith('time')) newData.time = docSnap.data();
+          }
+        });
+        setData(newData);
+      } catch (error) {
+        console.error("Error fetching stats:", error);
+      }
+      setLoading(false);
+    };
+
+    fetchStats();
+  }, [range]);
+
+  const renderTopList = (statsMap, title) => {
+    const sorted = Object.entries(statsMap)
+      .map(([id, count]) => {
+        const song = catalog.find(s => s.id === id);
+        return { id, count, title: song ? song.title : id };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    if (sorted.length === 0) return null;
+
+    const maxCount = sorted[0].count;
+
+    return (
+      <div className="space-y-4">
+        <h3 className="text-brand-gold font-bold uppercase tracking-wider text-sm flex items-center gap-2">
+          {title === 'plays' ? <Disc3 size={16} /> : <Flame size={16} />}
+          {title === 'plays' ? t.statsPlays : t.statsVotes}
+        </h3>
+        <div className="space-y-3">
+          {sorted.map((item) => (
+            <div key={item.id} className="space-y-1">
+              <div className="flex justify-between text-xs text-zinc-300">
+                <span className="truncate pr-4">{item.title}</span>
+                <span className="font-bold">{item.count}</span>
+              </div>
+              <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-brand-neon-purple rounded-full"
+                  style={{ width: `${(item.count / maxCount) * 100}%` }}
+                ></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderTimeChart = () => {
+    if (range !== 'hoy' && range !== 'semana') return null;
+
+    const timeData = data.time;
+    const isHoy = range === 'hoy';
+    const keys = isHoy
+      ? Array.from({ length: 24 }, (_, i) => i.toString())
+      : Array.from({ length: 7 }, (_, i) => i.toString());
+
+    const maxCount = Math.max(...Object.values(timeData), 0) || 1;
+
+    return (
+      <div className="space-y-4">
+        <h3 className="text-brand-gold font-bold uppercase tracking-wider text-sm">
+          {isHoy ? t.statsTime : t.statsDays}
+        </h3>
+        <div className="flex items-end gap-1 h-32 pt-4">
+          {keys.map(key => {
+            const count = timeData[key] || 0;
+            const height = (count / maxCount) * 100;
+            return (
+              <div key={key} className="flex-1 flex flex-col items-center gap-2 h-full">
+                <div className="flex-1 w-full flex items-end">
+                  <div
+                    className="w-full bg-brand-neon-green/40 border-t border-brand-neon-green rounded-t-sm transition-all duration-500"
+                    style={{ height: `${height}%` }}
+                    title={`${count} votos`}
+                  ></div>
+                </div>
+                <span className="text-[10px] text-zinc-500">
+                  {isHoy ? key : t.daysShort[parseInt(key)]}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] bg-zinc-950 flex flex-col">
+      <header className="p-4 border-b border-brand-gold/20 flex items-center justify-between">
+        <h2 className="text-xl font-bold text-brand-gold flex items-center gap-2">
+          <BarChart3 />
+          {t.statsTitle}
+        </h2>
+        <button onClick={onClose} className="p-2 text-zinc-400 hover:text-white">
+          <X size={24} />
+        </button>
+      </header>
+
+      <nav className="flex p-2 gap-1 bg-zinc-900 border-b border-zinc-800">
+        {[
+          { id: 'hoy', label: t.statsToday },
+          { id: 'semana', label: t.statsWeek },
+          { id: 'mes', label: t.statsMonth },
+          { id: 'total', label: t.statsTotal }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setRange(tab.id)}
+            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
+              range === tab.id
+                ? 'bg-brand-gold text-zinc-950'
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      <main className="flex-1 overflow-y-auto p-6 space-y-10">
+        {loading ? (
+          <div className="flex items-center justify-center h-40 text-brand-gold animate-pulse">
+            {t.loading}
+          </div>
+        ) : (
+          <>
+            {Object.keys(data.plays).length === 0 && Object.keys(data.votes).length === 0 ? (
+              <div className="text-center py-20 text-zinc-600">
+                <BarChart3 size={48} className="mx-auto mb-4 opacity-20" />
+                <p>{t.noStats}</p>
+              </div>
+            ) : (
+              <>
+                {renderTimeChart()}
+                {renderTopList(data.votes, 'votes')}
+                {renderTopList(data.plays, 'plays')}
+              </>
+            )}
+          </>
+        )}
+      </main>
     </div>
   );
 }

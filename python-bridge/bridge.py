@@ -43,7 +43,7 @@ def sync_local_files():
     return local_filenames
 
 async def clear_all_data():
-    """Limpia absolutamente todo: cola de canciones, tokens de usuarios y cooldowns."""
+    """Limpia absolutamente todo: cola de canciones, tokens de usuarios, cooldowns y estadísticas cíclicas."""
     try:
         print(" [SISTEMA] Realizando limpieza de nueva jornada...")
         batch = db.batch()
@@ -67,7 +67,31 @@ async def clear_all_data():
         
         # 3. Limpiar el documento de cooldowns (bloqueos de 1 hora)
         batch.delete(db.collection('state').document('cooldowns'))
+        count += 1
         
+        # 4. Limpieza de Estadísticas
+        now = datetime.now()
+        stats_ref = db.collection('statistics')
+
+        # Siempre limpiar "Hoy"
+        batch.delete(stats_ref.document('plays_hoy'))
+        batch.delete(stats_ref.document('votes_hoy'))
+        batch.delete(stats_ref.document('time_hoy'))
+        count += 3
+
+        # Lunes: Limpiar "Semana"
+        if now.weekday() == 0:
+            batch.delete(stats_ref.document('plays_semana'))
+            batch.delete(stats_ref.document('votes_semana'))
+            batch.delete(stats_ref.document('time_semana'))
+            count += 3
+
+        # Día 1: Limpiar "Mes"
+        if now.day == 1:
+            batch.delete(stats_ref.document('plays_mes'))
+            batch.delete(stats_ref.document('votes_mes'))
+            count += 2
+
         if count > 0:
             batch.commit()
             
@@ -141,6 +165,18 @@ async def play_song_on_kodi(ws, filename, current_playing_file):
         'lastActive': int(time.time() * 1000)
     })
     db.collection('state').document('cooldowns').set({filename: int(time.time() * 1000)}, merge=True)
+
+    # Registro de estadísticas de reproducción
+    try:
+        stats_ref = db.collection('statistics')
+        increment_data = {filename: firestore.Increment(1)}
+        stats_ref.document('plays_hoy').set(increment_data, merge=True)
+        stats_ref.document('plays_semana').set(increment_data, merge=True)
+        stats_ref.document('plays_mes').set(increment_data, merge=True)
+        stats_ref.document('plays_total').set(increment_data, merge=True)
+    except Exception as e:
+        print(f" Error actualizando estadísticas de reproducción: {e}")
+
     await ws.send(json.dumps(payload))
     print(f" >>> REPRODUCIENDO: {clean_title(filename)}")
 
