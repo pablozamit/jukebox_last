@@ -191,7 +191,7 @@ export default function App() {
         setDoc(doc(statsRef, 'time_semana'), { [dayKey]: increment(1) }, { merge: true })
       ]);
 
-      setSearchTerm('');
+      // setSearchTerm(''); // Don't clear search automatically
       console.log("Acción registrada con éxito");
     } catch (error) {
       alert(t.firebaseError + error.message);
@@ -209,7 +209,7 @@ export default function App() {
       });
       setSuggested(true);
       setTimeout(() => setSuggested(false), 3000);
-      setSearchTerm('');
+      // setSearchTerm('');
     } catch (error) {
       console.error("Error sending suggestion:", error);
     }
@@ -222,16 +222,21 @@ export default function App() {
       votes: activeQueue[song.id]?.votes || 0,
       firstVotedAt: activeQueue[song.id]?.firstVotedAt || null
     }))
-    .filter(song => song.available !== false)
+    .filter(song => song.available !== false);
+
+  const queueSongs = mergedSongs
+    .filter(song => song.votes > 0)
     .sort((a, b) => {
       if (b.votes !== a.votes) return b.votes - a.votes;
-      if (a.firstVotedAt && b.firstVotedAt) return a.firstVotedAt - b.firstVotedAt;
-      return 0;
+      return (a.firstVotedAt || 0) - (b.firstVotedAt || 0);
     });
 
-  const filteredSongs = mergedSongs.filter(song =>
-    song.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredCatalog = mergedSongs
+    .filter(song => song.votes === 0)
+    .filter(song =>
+      song.title.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .sort((a, b) => a.title.localeCompare(b.title));
 
   const calculateProgress = () => {
     if (!nowPlaying || !nowPlaying.totalTime || nowPlaying.totalTime === 0) return 0;
@@ -261,7 +266,7 @@ export default function App() {
     return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-brand-gold">{t.loading}</div>;
   }
 
-  const topSongId = mergedSongs.length > 0 && mergedSongs[0].votes > 0 ? mergedSongs[0].id : null;
+  const topSongId = queueSongs.length > 0 ? queueSongs[0].id : null;
 
   return (
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans selection:bg-brand-neon-purple/30">
@@ -359,47 +364,114 @@ export default function App() {
           )}
         </section>
 
-        {/* User Status Banner (Sticky under header) */}
-        <div className="sticky top-[110px] z-40 bg-zinc-950 pb-2 flex gap-2">
-          <div className={`flex-1 rounded-xl p-3 text-center text-sm font-medium border shadow-lg transition-colors duration-300 ${
-            userProposals.length < 3
-              ? 'bg-brand-neon-green/10 border-brand-neon-green/30 text-brand-neon-green' 
-              : 'bg-zinc-900 border-zinc-800 text-zinc-400'
-          }`}>
-            {t.proposalsLabel}: {userProposals.length}/3
+        {/* Sticky Section for Status, Search and Queue */}
+        <div className="sticky top-[100px] z-40 bg-zinc-950 space-y-4 pb-4 border-b border-zinc-800/50 shadow-2xl">
+          {/* User Status Banner */}
+          <div className="flex gap-2">
+            <div className={`flex-1 rounded-xl p-3 text-center text-sm font-medium border shadow-lg transition-colors duration-300 ${
+              userProposals.length < 3
+                ? 'bg-brand-neon-green/10 border-brand-neon-green/30 text-brand-neon-green'
+                : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+            }`}>
+              {t.proposalsLabel}: {userProposals.length}/3
+            </div>
+            <div className={`flex-1 rounded-xl p-3 text-center text-sm font-medium border shadow-lg transition-colors duration-300 ${
+              userVotes.length < 5
+                ? 'bg-brand-neon-purple/10 border-brand-neon-purple/30 text-brand-neon-purple'
+                : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+            }`}>
+              {t.votesLabel}: {userVotes.length}/5
+            </div>
           </div>
-          <div className={`flex-1 rounded-xl p-3 text-center text-sm font-medium border shadow-lg transition-colors duration-300 ${
-            userVotes.length < 5
-              ? 'bg-brand-neon-purple/10 border-brand-neon-purple/30 text-brand-neon-purple'
-              : 'bg-zinc-900 border-zinc-800 text-zinc-400'
-          }`}>
-            {t.votesLabel}: {userVotes.length}/5
-          </div>
-        </div>
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={20} />
-          <input
-            type="text"
-            placeholder={t.searchPlaceholder}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-10 pr-10 text-white placeholder-zinc-500 focus:outline-none focus:border-brand-neon-purple focus:ring-1 focus:ring-brand-neon-purple transition-all"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-400 p-1"
-            >
-              <X size={20} />
-            </button>
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={20} />
+            <input
+              type="text"
+              placeholder={t.searchPlaceholder}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-10 pr-10 text-white placeholder-zinc-500 focus:outline-none focus:border-brand-neon-purple focus:ring-1 focus:ring-brand-neon-purple transition-all"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-400 p-1"
+              >
+                <X size={20} />
+              </button>
+            )}
+          </div>
+
+          {/* Queue Section (Fixed/Sticky) */}
+          {queueSongs.length > 0 && (
+            <div className="bg-zinc-900/50 border border-brand-gold/20 rounded-2xl overflow-hidden shadow-inner">
+              <div className="bg-brand-gold/10 px-4 py-2 border-b border-brand-gold/20 flex justify-between items-center">
+                <span className="text-[10px] font-bold text-brand-gold uppercase tracking-[0.2em]">{t.nextInQueue}</span>
+                <span className="text-[10px] font-bold text-brand-gold/60">{queueSongs.length}</span>
+              </div>
+              <div className="max-h-[35vh] overflow-y-auto custom-scrollbar divide-y divide-zinc-800/50">
+                {queueSongs.map((song) => {
+                  const isTop = song.id === topSongId;
+                  const isNowPlaying = nowPlaying?.title === song.title;
+                  const limitReached = userVotes.length >= 5;
+
+                  const songCooldown = cooldowns[song.id];
+                  const isCoolingDown = songCooldown && (currentTime - songCooldown < 3600000);
+                  const minutesLeft = isCoolingDown ? Math.ceil((3600000 - (currentTime - songCooldown)) / 60000) : 0;
+
+                  return (
+                    <div
+                      key={`queue-${song.id}`}
+                      className={`flex items-center gap-3 p-3 transition-colors ${
+                        isTop ? 'bg-brand-gold/5' : 'bg-transparent hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-bold text-white truncate">
+                          {song.title}
+                        </h4>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Flame size={12} className="text-brand-gold" />
+                          <span className="text-xs text-brand-gold font-medium">
+                            {song.votes} {song.votes === 1 ? t.vote : t.votes}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleVote(song)}
+                        disabled={isNowPlaying || limitReached || !isBridgeActive || isCoolingDown}
+                        className={`shrink-0 flex items-center justify-center h-8 px-3 rounded-lg font-bold text-xs transition-all ${
+                          isNowPlaying || !isBridgeActive || isCoolingDown || limitReached
+                            ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                            : 'bg-brand-gold text-zinc-950 hover:bg-brand-gold-dark active:scale-95'
+                        }`}
+                      >
+                        {isNowPlaying
+                          ? t.nowPlayingBtn
+                          : isCoolingDown
+                            ? `⏳ ${minutesLeft}`
+                            : t.voteButton}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Catalog */}
-        <section className="space-y-3">
-          {filteredSongs.length === 0 ? (
+        {/* Catalog Section */}
+        <section className="space-y-3 pt-2">
+          <div className="flex items-center gap-2 px-1 mb-4">
+             <div className="h-px flex-1 bg-zinc-800"></div>
+             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{t.songCatalog}</span>
+             <div className="h-px flex-1 bg-zinc-800"></div>
+          </div>
+
+          {filteredCatalog.length === 0 ? (
             searchTerm !== '' ? (
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
                 <div className="flex justify-center">
@@ -428,11 +500,9 @@ export default function App() {
               <p className="text-center text-zinc-600 py-10">{t.noResults}</p>
             )
           ) : (
-            filteredSongs.map((song) => {
-              const isTop = song.id === topSongId && song.votes > 0;
+            filteredCatalog.map((song) => {
               const isNowPlaying = nowPlaying?.title === song.title;
-              const isProposal = song.votes === 0;
-              const limitReached = isProposal ? userProposals.length >= 3 : userVotes.length >= 5;
+              const limitReached = userProposals.length >= 3;
               
               const songCooldown = cooldowns[song.id];
               const isCoolingDown = songCooldown && (currentTime - songCooldown < 3600000);
@@ -441,43 +511,32 @@ export default function App() {
               return (
                 <div 
                   key={song.id} 
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${
-                    isTop ? 'bg-zinc-900 border border-brand-gold/30' : 'bg-transparent hover:bg-zinc-900'
-                  }`}
+                  className="flex items-center gap-3 p-3 rounded-xl transition-colors bg-transparent hover:bg-zinc-900 border border-transparent hover:border-zinc-800"
                 >
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <h4 className="text-sm font-medium text-white truncate">
                       {song.title}
                     </h4>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      {song.votes > 0 && <Flame size={12} className="text-brand-gold" />}
-                      <span className={`text-xs ${song.votes > 0 ? 'text-brand-gold font-medium' : 'text-zinc-600'}`}>
-                        {song.votes === 0 ? t.noVotes : `${song.votes} ${song.votes === 1 ? t.vote : t.votes}`}
-                      </span>
-                    </div>
+                    <span className="text-xs text-zinc-600">
+                      {t.noVotes}
+                    </span>
                   </div>
 
-                  {/* Actions */}
                   <button
                     onClick={() => handleVote(song)}
                     disabled={isNowPlaying || limitReached || !isBridgeActive || isCoolingDown}
                     className={`shrink-0 flex items-center justify-center h-10 px-4 rounded-lg font-medium text-sm transition-all ${
                       isNowPlaying || !isBridgeActive || isCoolingDown || limitReached
                         ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
-                        : song.votes === 0
-                          ? 'bg-zinc-800 text-white hover:bg-zinc-700 active:bg-zinc-600'
-                          : 'bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/20 active:bg-brand-gold/30'
+                        : 'bg-zinc-800 text-white hover:bg-zinc-700 active:bg-zinc-600'
                     }`}
                   >
-                    {!isNowPlaying && !limitReached && !isCoolingDown && isBridgeActive && song.votes === 0 && <Plus size={16} className="mr-1" />}
+                    {!isNowPlaying && !limitReached && !isCoolingDown && isBridgeActive && <Plus size={16} className="mr-1" />}
                     {isNowPlaying
                       ? t.nowPlayingBtn
                       : isCoolingDown
                         ? `⏳ ${minutesLeft} ${t.cooldown}`
-                        : song.votes === 0
-                          ? t.add
-                          : t.voteButton}
+                        : t.add}
                   </button>
                 </div>
               );

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
-import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2 } from 'lucide-react';
+import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2, Search, X } from 'lucide-react';
 import { db } from './firebase';
 import { translations } from './translations';
 
@@ -10,6 +10,7 @@ export default function AdminPage() {
   const [catalog, setCatalog] = useState([]);
   const [activeQueue, setActiveQueue] = useState({});
   const [nowPlaying, setNowPlaying] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
 
   const t = translations[lang];
@@ -142,14 +143,21 @@ export default function AdminPage() {
       ...song,
       votes: activeQueue[song.id]?.votes || 0,
       firstVotedAt: activeQueue[song.id]?.firstVotedAt || null
-    }))
+    }));
+
+  const nextInQueue = mergedSongs
+    .filter(s => s.votes > 0)
     .sort((a, b) => {
       if (b.votes !== a.votes) return b.votes - a.votes;
-      if (a.firstVotedAt && b.firstVotedAt) return a.firstVotedAt - b.firstVotedAt;
-      return 0;
+      return (a.firstVotedAt || 0) - (b.firstVotedAt || 0);
     });
 
-  const nextInQueue = mergedSongs.filter(s => s.votes > 0);
+  const filteredCatalog = mergedSongs
+    .filter(song => song.title.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => {
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      return a.title.localeCompare(b.title);
+    });
 
   return (
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans text-white">
@@ -202,88 +210,123 @@ export default function AdminPage() {
           </section>
         )}
 
-        {/* Cola Real de Reproducción */}
-        {nextInQueue.length > 0 && (
-          <section className="bg-zinc-900 border border-brand-gold/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(255,204,0,0.05)]">
-            <h2 className="text-brand-gold text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
-               {t.nextInQueue} ({nextInQueue.length})
-            </h2>
-            <div className="space-y-2">
-              {nextInQueue.map((song, index) => (
-                <div key={`queue-${song.id}`} className="flex justify-between items-center bg-zinc-950 p-3 rounded-lg border border-zinc-800">
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <span className="text-zinc-500 font-bold w-4 text-center">{index + 1}</span>
-                    <span className="font-medium text-white truncate">{song.title}</span>
+        {/* Sticky Queue Section */}
+        <div className="sticky top-[73px] z-40 bg-zinc-950 space-y-4 pb-4">
+          {/* Cola Real de Reproducción */}
+          {nextInQueue.length > 0 && (
+            <section className="bg-zinc-900 border border-brand-gold/30 rounded-2xl overflow-hidden shadow-[0_0_20px_rgba(255,204,0,0.05)]">
+              <div className="bg-brand-gold/10 px-5 py-3 border-b border-brand-gold/20 flex justify-between items-center">
+                <h2 className="text-brand-gold text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                  <Flame size={14} /> {t.nextInQueue}
+                </h2>
+                <span className="text-brand-gold/60 text-xs font-bold">{nextInQueue.length}</span>
+              </div>
+              <div className="max-h-[35vh] overflow-y-auto custom-scrollbar divide-y divide-zinc-800/50">
+                {nextInQueue.map((song, index) => (
+                  <div key={`queue-${song.id}`} className="flex justify-between items-center bg-transparent p-3 hover:bg-white/5 transition-colors">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <span className="text-zinc-500 font-bold w-4 text-center text-xs">{index + 1}</span>
+                      <span className="font-medium text-white truncate text-sm">{song.title}</span>
+                    </div>
+                    <div className="flex items-center gap-3 pl-3 shrink-0">
+                      <span className="flex items-center gap-1 font-bold text-brand-gold text-xs">
+                        {song.votes}
+                      </span>
+                      <button
+                        onClick={() => handleForcePlay(song.id)}
+                        disabled={song.available === false}
+                        className={`p-1.5 rounded-lg flex items-center justify-center transition-colors ${song.available === false ? 'bg-zinc-800 text-zinc-600' : 'bg-brand-neon-green/10 text-brand-neon-green hover:bg-brand-neon-green/30'}`}
+                        title={t.playNext}
+                      >
+                        <Play size={14} className="translate-x-[1px]" />
+                      </button>
+                      <button
+                        onClick={() => updateVotes(song, 0)}
+                        className="p-1.5 rounded-lg flex items-center justify-center bg-red-500/10 text-red-500 hover:bg-red-500/30 transition-colors"
+                        title={t.removeFromQueue}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 pl-3 shrink-0">
-                    <span className="flex items-center gap-1 font-medium text-brand-gold text-sm">
-                      <Flame size={14} /> {song.votes}
-                    </span>
-                    <button 
-                      onClick={() => handleForcePlay(song.id)} 
-                      disabled={song.available === false}
-                      className={`p-1.5 rounded-lg flex items-center justify-center transition-colors ${song.available === false ? 'bg-zinc-800 text-zinc-600' : 'bg-brand-neon-green/10 text-brand-neon-green hover:bg-brand-neon-green/30'}`} 
-                      title={t.playNext}
-                    >
-                      <Play size={16} className="translate-x-[1px]" />
-                    </button>
-                    <button 
-                      onClick={() => updateVotes(song, 0)}
-                      className="p-1.5 rounded-lg flex items-center justify-center bg-red-500/10 text-red-500 hover:bg-red-500/30 transition-colors"
-                      title={t.removeFromQueue}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Search Bar for Admin */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={20} />
+            <input
+              type="text"
+              placeholder={t.searchPlaceholder}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-10 pr-10 text-white placeholder-zinc-500 focus:outline-none focus:border-brand-neon-purple focus:ring-1 focus:ring-brand-neon-purple transition-all"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-400 p-1"
+              >
+                <X size={20} />
+              </button>
+            )}
+          </div>
+        </div>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-bold text-zinc-300 ml-1 mb-2">{t.songCatalog}</h2>
-          {mergedSongs.map(song => (
-            <div key={song.id} className={`p-4 rounded-xl border flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center transition-opacity ${song.available === false ? 'bg-zinc-950 border-red-500/20 opacity-60' : 'bg-zinc-900 border-zinc-800'}`}>
-              
-              <div className="flex-1 min-w-0 w-full">
-                <h4 className={`font-medium truncate ${song.available === false ? 'line-through text-zinc-500' : 'text-white'}`}>{song.title}</h4>
-                <div className="text-sm text-zinc-400 mt-2 flex items-center gap-3">
-                  <span className="flex items-center gap-1 font-medium">
-                    <Flame size={14} className={song.votes > 0 ? "text-brand-gold" : "text-zinc-600"} /> 
-                    <span className={song.votes > 0 ? "text-brand-gold" : ""}>{song.votes} {song.votes === 1 ? t.vote : t.votes}</span>
-                  </span>
-                  {song.available === false && (
-                    <span className="text-red-400 text-[10px] font-bold uppercase tracking-wider bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">{t.hidden}</span>
-                  )}
+          <div className="flex items-center gap-2 px-1 mb-2">
+             <div className="h-px flex-1 bg-zinc-800"></div>
+             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{t.songCatalog}</span>
+             <div className="h-px flex-1 bg-zinc-800"></div>
+          </div>
+
+          {filteredCatalog.length === 0 ? (
+            <p className="text-center text-zinc-600 py-10">{t.noResults}</p>
+          ) : (
+            filteredCatalog.map(song => (
+              <div key={song.id} className={`p-4 rounded-xl border flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center transition-opacity ${song.available === false ? 'bg-zinc-950 border-red-500/20 opacity-60' : 'bg-zinc-900 border-zinc-800 shadow-sm'}`}>
+
+                <div className="flex-1 min-w-0 w-full">
+                  <h4 className={`font-bold truncate ${song.available === false ? 'line-through text-zinc-500' : 'text-white'}`}>{song.title}</h4>
+                  <div className="text-sm text-zinc-400 mt-2 flex items-center gap-3">
+                    <span className="flex items-center gap-1 font-medium">
+                      <Flame size={14} className={song.votes > 0 ? "text-brand-gold" : "text-zinc-600"} />
+                      <span className={song.votes > 0 ? "text-brand-gold font-bold" : ""}>{song.votes} {song.votes === 1 ? t.vote : t.votes}</span>
+                    </span>
+                    {song.available === false && (
+                      <span className="text-red-400 text-[10px] font-bold uppercase tracking-wider bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">{t.hidden}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                  {/* Controles de Votos */}
+                  <div className="flex items-center bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden mr-2">
+                    <button onClick={() => updateVotes(song, song.votes - 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-purple transition-colors">-</button>
+                    <span className="px-3 py-2 font-bold min-w-[2.5rem] text-center text-sm">{song.votes}</span>
+                    <button onClick={() => updateVotes(song, song.votes + 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-green transition-colors">+</button>
+                  </div>
+
+                  {/* Forzar Reproducción */}
+                  <button
+                    onClick={() => handleForcePlay(song.id)}
+                    disabled={song.available === false}
+                    className={`p-2.5 rounded-lg flex items-center justify-center transition-colors ${song.available === false ? 'bg-zinc-800 text-zinc-600' : 'bg-brand-neon-green/10 text-brand-neon-green hover:bg-brand-neon-green/30'}`}
+                    title={t.playNext}
+                  >
+                    <Play size={18} className="translate-x-[1px]" />
+                  </button>
+
+                  {/* Toggle Visibilidad */}
+                  <button onClick={() => toggleAvailability(song.id)} className={`p-2.5 rounded-lg transition-colors border ${song.available !== false ? 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:bg-zinc-800' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`} title={song.available !== false ? t.hideSong : t.showSong}>
+                    {song.available !== false ? <Eye size={18} /> : <EyeOff size={18} />}
+                  </button>
                 </div>
               </div>
-
-              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                {/* Controles de Votos */}
-                <div className="flex items-center bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden mr-2">
-                  <button onClick={() => updateVotes(song, song.votes - 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-purple">-</button>
-                  <span className="px-3 py-2 font-bold min-w-[2.5rem] text-center text-sm">{song.votes}</span>
-                  <button onClick={() => updateVotes(song, song.votes + 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-green">+</button>
-                </div>
-
-                {/* Forzar Reproducción */}
-                <button 
-                  onClick={() => handleForcePlay(song.id)} 
-                  disabled={song.available === false}
-                  className={`p-2.5 rounded-lg flex items-center justify-center transition-colors ${song.available === false ? 'bg-zinc-800 text-zinc-600' : 'bg-brand-neon-green/10 text-brand-neon-green hover:bg-brand-neon-green/30'}`} 
-                  title={t.playNext}
-                >
-                  <Play size={18} className="translate-x-[1px]" />
-                </button>
-
-                {/* Toggle Visibilidad */}
-                <button onClick={() => toggleAvailability(song.id)} className={`p-2.5 rounded-lg transition-colors border ${song.available !== false ? 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:bg-zinc-800' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`} title={song.available !== false ? t.hideSong : t.showSong}>
-                  {song.available !== false ? <Eye size={18} /> : <EyeOff size={18} />}
-                </button>
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </section>
       </main>
     </div>
