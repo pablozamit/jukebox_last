@@ -12,7 +12,6 @@ export default function AdminPage() {
   const [nowPlaying, setNowPlaying] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
-  const [searchTerm, setSearchTerm] = useState('');
   const [showScroll, setShowScroll] = useState(false);
   const [showStats, setShowStats] = useState(false);
 
@@ -163,20 +162,16 @@ export default function AdminPage() {
       return (a.firstVotedAt || 0) - (b.firstVotedAt || 0);
     });
 
+  const filteredQueue = nextInQueue.filter(song =>
+    song.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const filteredCatalog = mergedSongs
     .filter(song => song.title.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
       if (b.votes !== a.votes) return b.votes - a.votes;
       return a.title.localeCompare(b.title);
     });
-
-  const filteredCatalog = mergedSongs.filter(song =>
-    song.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const filteredQueue = nextInQueue.filter(song =>
-    song.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   return (
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans text-white">
@@ -244,6 +239,7 @@ export default function AdminPage() {
             </button>
           )}
         </div>
+
         {/* Ahora Sonando */}
         {nowPlaying && (
           <section className="bg-zinc-900 border border-brand-neon-purple/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(176,38,255,0.05)]">
@@ -262,63 +258,62 @@ export default function AdminPage() {
 
         {/* Cola Real de Reproducción */}
         {filteredQueue.length > 0 && (
-          <section className="bg-zinc-900 border border-brand-gold/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(255,204,0,0.05)]">
-            <h2 className="text-brand-gold text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
-               {t.nextInQueue} ({filteredQueue.length})
-            </h2>
-            <div className="space-y-2">
+          <section className="bg-zinc-900 border border-brand-gold/30 rounded-2xl overflow-hidden shadow-[0_0_20px_rgba(255,204,0,0.05)]">
+            <div className="bg-brand-gold/10 px-5 py-3 border-b border-brand-gold/20 flex justify-between items-center">
+              <h2 className="text-brand-gold text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                <Flame size={14} /> {t.nextInQueue}
+              </h2>
+              <span className="text-brand-gold/60 text-xs font-bold">{filteredQueue.length}</span>
+            </div>
+            <div className="max-h-[35vh] overflow-y-auto custom-scrollbar divide-y divide-zinc-800/50">
               {filteredQueue.map((song, index) => {
                 const originalIndex = nextInQueue.findIndex(s => s.id === song.id);
                 return (
-                <div key={`queue-${song.id}`} className="flex justify-between items-center bg-zinc-950 p-3 rounded-lg border border-zinc-800">
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <span className="text-zinc-500 font-bold w-4 text-center">{originalIndex + 1}</span>
-                    <span className="font-medium text-white truncate">{song.title}</span>
+                  <div key={`queue-${song.id}`} className="flex justify-between items-center bg-transparent p-3 hover:bg-white/5 transition-colors">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <span className="text-zinc-500 font-bold w-4 text-center text-xs">{originalIndex + 1}</span>
+                      <span className="font-medium text-white truncate text-sm">{song.title}</span>
+                    </div>
+                    <div className="flex items-center gap-3 pl-3 shrink-0">
+                      <span className="flex items-center gap-1 font-bold text-brand-gold text-xs">
+                        {song.votes}
+                      </span>
+                      <button
+                        onClick={() => handleForcePlay(song.id)}
+                        disabled={song.available === false}
+                        className={`p-1.5 rounded-lg flex items-center justify-center transition-colors ${song.available === false ? 'bg-zinc-800 text-zinc-600' : 'bg-brand-neon-green/10 text-brand-neon-green hover:bg-brand-neon-green/30'}`}
+                        title={t.playNext}
+                      >
+                        <Play size={14} className="translate-x-[1px]" />
+                      </button>
+                      <button
+                        onClick={() => updateVotes(song, 0)}
+                        className="p-1.5 rounded-lg flex items-center justify-center bg-red-500/10 text-red-500 hover:bg-red-500/30 transition-colors"
+                        title={t.removeFromQueue}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 pl-3 shrink-0">
-                    <span className="flex items-center gap-1 font-medium text-brand-gold text-sm">
-                      <Flame size={14} /> {song.votes}
-                    </span>
-                    <button 
-                      onClick={() => handleForcePlay(song.id)} 
-                      disabled={song.available === false}
-                      className={`p-1.5 rounded-lg flex items-center justify-center transition-colors ${song.available === false ? 'bg-zinc-800 text-zinc-600' : 'bg-brand-neon-green/10 text-brand-neon-green hover:bg-brand-neon-green/30'}`} 
-                      title={t.playNext}
-                    >
-                      <Play size={16} className="translate-x-[1px]" />
-                    </button>
-                    <button 
-                      onClick={() => updateVotes(song, 0)}
-                      className="p-1.5 rounded-lg flex items-center justify-center bg-red-500/10 text-red-500 hover:bg-red-500/30 transition-colors"
-                      title={t.removeFromQueue}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              )})}
+                );
+              })}
             </div>
           </section>
         )}
 
         <section className="space-y-3">
-          <h2 className="text-lg font-bold text-zinc-300 ml-1 mb-2">{t.songCatalog} ({filteredCatalog.length})</h2>
-          {filteredCatalog.map(song => (
-            <div key={song.id} className={`p-4 rounded-xl border flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center transition-opacity ${song.available === false ? 'bg-zinc-950 border-red-500/20 opacity-60' : 'bg-zinc-900 border-zinc-800'}`}>
-              
-              <div className="flex-1 min-w-0 w-full">
-                <h4 className={`font-medium truncate ${song.available === false ? 'line-through text-zinc-500' : 'text-white'}`}>{song.title}</h4>
-                <div className="text-sm text-zinc-400 mt-2 flex items-center gap-3">
-                  <span className="flex items-center gap-1 font-medium">
-                    <Flame size={14} className={song.votes > 0 ? "text-brand-gold" : "text-zinc-600"} /> 
-                    <span className={song.votes > 0 ? "text-brand-gold" : ""}>{song.votes} {song.votes === 1 ? t.vote : t.votes}</span>
-                  </span>
-                  {song.available === false && (
-                    <span className="text-red-400 text-[10px] font-bold uppercase tracking-wider bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">{t.hidden}</span>
-                  )}
-                </div>
-              </div>
+          <div className="flex items-center gap-2 px-1 mb-2">
+             <div className="h-px flex-1 bg-zinc-800"></div>
+             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{t.songCatalog} ({filteredCatalog.length})</span>
+             <div className="h-px flex-1 bg-zinc-800"></div>
+          </div>
 
+          {filteredCatalog.length === 0 ? (
+            <p className="text-center text-zinc-600 py-10">{t.noResults}</p>
+          ) : (
+            filteredCatalog.map(song => (
+              <div key={song.id} className={`p-4 rounded-xl border flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center transition-opacity ${song.available === false ? 'bg-zinc-950 border-red-500/20 opacity-60' : 'bg-zinc-900 border-zinc-800 shadow-sm'}`}>
+                
                 <div className="flex-1 min-w-0 w-full">
                   <h4 className={`font-bold truncate ${song.available === false ? 'line-through text-zinc-500' : 'text-white'}`}>{song.title}</h4>
                   <div className="text-sm text-zinc-400 mt-2 flex items-center gap-3">
