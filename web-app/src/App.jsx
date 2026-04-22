@@ -708,9 +708,13 @@ function StatsModal({ onClose, t, catalog }) {
 
     const timeData = data.time;
     const isHoy = range === 'hoy';
+    
+    // MAGIA VISUAL: 
+    // - Para 'Hoy': Desplazamos el inicio a las 6:00 AM (así 00:00 - 05:00 sale al final de la gráfica)
+    // - Para 'Semana': Desplazamos el inicio al Lunes (1) en vez del Domingo (0)
     const keys = isHoy
-      ? Array.from({ length: 24 }, (_, i) => i.toString())
-      : Array.from({ length: 7 }, (_, i) => i.toString());
+      ? Array.from({ length: 24 }, (_, i) => ((i + 6) % 24).toString())
+      : Array.from({ length: 7 }, (_, i) => ((i + 1) % 7).toString());
 
     const maxCount = Math.max(...Object.values(timeData), 0) || 1;
 
