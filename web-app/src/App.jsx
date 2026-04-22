@@ -153,7 +153,6 @@ export default function App() {
     try {
       const userRef = doc(db, 'users', userId);
 
-      // Guardamos el array permitiendo duplicados en lugar de usar arrayUnion
       if (isProposal) {
         await setDoc(userRef, { proposals: [...userProposals, song.id] }, { merge: true });
       } else {
@@ -172,7 +171,6 @@ export default function App() {
       let hour = now.getHours();
       let day = now.getDay();
 
-      // 2 AM Offset Logic
       if (hour < 2) {
         day = (day === 0) ? 6 : day - 1;
       }
@@ -191,7 +189,6 @@ export default function App() {
         setDoc(doc(statsRef, 'time_semana'), { [dayKey]: increment(1) }, { merge: true })
       ]);
 
-      // setSearchTerm(''); // Don't clear search automatically
       console.log("Acción registrada con éxito");
     } catch (error) {
       alert(t.firebaseError + error.message);
@@ -209,13 +206,11 @@ export default function App() {
       });
       setSuggested(true);
       setTimeout(() => setSuggested(false), 3000);
-      // setSearchTerm('');
     } catch (error) {
       console.error("Error sending suggestion:", error);
     }
   };
 
-  // Combinar catálogo con votos de la cola activa
   const mergedSongs = catalog
     .map(song => ({
       ...song,
@@ -624,7 +619,7 @@ export default function App() {
 }
 
 function StatsModal({ onClose, t, catalog }) {
-  const [range, setRange] = useState('hoy'); // hoy, semana, mes, total
+  const [range, setRange] = useState('hoy'); 
   const [data, setData] = useState({ plays: {}, votes: {}, time: {} });
   const [loading, setLoading] = useState(true);
 
@@ -709,11 +704,9 @@ function StatsModal({ onClose, t, catalog }) {
     const timeData = data.time;
     const isHoy = range === 'hoy';
     
-    // MAGIA VISUAL: 
-    // - Para 'Hoy': Desplazamos el inicio a las 6:00 AM (así 00:00 - 05:00 sale al final de la gráfica)
-    // - Para 'Semana': Desplazamos el inicio al Lunes (1) en vez del Domingo (0)
+    // HORAS REALES DE TU LOCAL: de 18:00 a 01:00 (cubriendo hasta el cierre)
     const keys = isHoy
-      ? Array.from({ length: 24 }, (_, i) => ((i + 6) % 24).toString())
+      ? ['18', '19', '20', '21', '22', '23', '0', '1']
       : Array.from({ length: 7 }, (_, i) => ((i + 1) % 7).toString());
 
     const maxCount = Math.max(...Object.values(timeData), 0) || 1;
@@ -737,7 +730,7 @@ function StatsModal({ onClose, t, catalog }) {
                   ></div>
                 </div>
                 <span className="text-[10px] text-zinc-500">
-                  {isHoy ? key : t.daysShort[parseInt(key)]}
+                  {isHoy ? `${key}h` : t.daysShort[parseInt(key)]}
                 </span>
               </div>
             );
