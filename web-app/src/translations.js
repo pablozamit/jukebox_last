@@ -73,7 +73,10 @@ export const translations = {
     statsTime: "Actividad por Horas",
     statsDays: "Actividad por Días",
     noStats: "Aún no hay datos para este periodo.",
-    daysShort: ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
+    daysShort: ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"],
+    suggestionsTitle: "Sugerencias",
+    noSuggestions: "No hay sugerencias",
+    confirmDelete: "¿Estás seguro de que quieres borrar la sugerencia '{title}'?"
   },
   en: {
     loading: "Loading...",
@@ -149,6 +152,9 @@ export const translations = {
     statsTime: "Activity by Hour",
     statsDays: "Activity by Day",
     noStats: "No data available for this period.",
-    daysShort: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    daysShort: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    suggestionsTitle: "Suggestions",
+    noSuggestions: "No suggestions",
+    confirmDelete: "Are you sure you want to delete the suggestion '{title}'?"
   }
 };

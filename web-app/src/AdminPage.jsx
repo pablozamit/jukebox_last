@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
-import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2, Search, X, ArrowUp, BarChart3, Disc3 } from 'lucide-react';
+import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2, Search, X, ArrowUp, BarChart3, Disc3, Music2 } from 'lucide-react';
 import { db } from './firebase';
 import { translations } from './translations';
 
@@ -10,6 +10,7 @@ export default function AdminPage() {
   const [catalog, setCatalog] = useState([]);
   const [activeQueue, setActiveQueue] = useState({});
   const [nowPlaying, setNowPlaying] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
   const [showScroll, setShowScroll] = useState(false);
@@ -50,10 +51,21 @@ export default function AdminPage() {
       setActiveQueue(queueMap);
     });
 
+    const suggestionsRef = collection(db, 'suggestions');
+    const qSuggestions = query(suggestionsRef, orderBy('timestamp', 'desc'));
+    const unsubSuggestions = onSnapshot(qSuggestions, (snapshot) => {
+      const sugList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setSuggestions(sugList);
+    });
+
     return () => {
       unsubState();
       unsubCatalog();
       unsubSongs();
+      unsubSuggestions();
     };
   }, [authenticated]);
 
@@ -73,6 +85,13 @@ export default function AdminPage() {
 
   const handleSkip = async () => {
     await setDoc(doc(db, 'commands', 'skipCurrent'), { skip: true });
+  };
+
+  const handleDeleteSuggestion = async (id, title) => {
+    const confirmMsg = t.confirmDelete.replace('{title}', title);
+    if (window.confirm(confirmMsg)) {
+      await deleteDoc(doc(db, 'suggestions', id));
+    }
   };
 
   const updateVotes = async (song, numVotes) => {
@@ -171,6 +190,20 @@ export default function AdminPage() {
       if (b.votes !== a.votes) return b.votes - a.votes;
       return a.title.localeCompare(b.title);
     });
+
+  const filteredSuggestions = suggestions.filter(s =>
+    s.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const formatDate = (ts) => {
+    if (!ts) return '';
+    const date = new Date(ts);
+    const dd = String(date.getDate()).padStart(2, '0');
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const hh = String(date.getHours()).padStart(2, '0');
+    const min = String(date.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm} ${hh}:${min}`;
+  };
 
   return (
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans text-white">
@@ -296,6 +329,38 @@ export default function AdminPage() {
             </div>
           </section>
         )}
+
+        {/* Suggestions Section */}
+        <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+          <div className="bg-zinc-800/50 px-5 py-3 border-b border-zinc-800 flex justify-between items-center">
+            <h2 className="text-zinc-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+              <Music2 size={14} /> {t.suggestionsTitle}
+            </h2>
+            <span className="text-zinc-500 text-xs font-bold">{filteredSuggestions.length}</span>
+          </div>
+          <div className="max-h-[35vh] overflow-y-auto custom-scrollbar divide-y divide-zinc-800/50">
+            {filteredSuggestions.length === 0 ? (
+              <div className="p-8 text-center text-zinc-600 text-sm">
+                {t.noSuggestions}
+              </div>
+            ) : (
+              filteredSuggestions.map((sug) => (
+                <div key={sug.id} className="flex justify-between items-center p-4 hover:bg-white/5 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-white truncate">{sug.title}</p>
+                    <p className="text-[10px] text-zinc-500 mt-1 uppercase tracking-wider">{formatDate(sug.timestamp)}</p>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteSuggestion(sug.id, sug.title)}
+                    className="p-2 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors ml-4"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
 
         <section className="space-y-3">
           <div className="flex items-center gap-2 px-1 mb-2">
