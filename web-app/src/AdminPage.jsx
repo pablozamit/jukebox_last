@@ -147,7 +147,6 @@ export default function AdminPage() {
     );
   }
 
-  // Combinar catálogo con votos de la cola activa
   const mergedSongs = catalog
     .map(song => ({
       ...song,
@@ -220,7 +219,6 @@ export default function AdminPage() {
       </header>
 
       <main className="p-4 max-w-3xl mx-auto space-y-6">
-        {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={20} />
           <input
@@ -240,7 +238,6 @@ export default function AdminPage() {
           )}
         </div>
 
-        {/* Ahora Sonando */}
         {nowPlaying && (
           <section className="bg-zinc-900 border border-brand-neon-purple/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(176,38,255,0.05)]">
             <h2 className="text-brand-neon-purple text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -256,7 +253,6 @@ export default function AdminPage() {
           </section>
         )}
 
-        {/* Cola Real de Reproducción */}
         {filteredQueue.length > 0 && (
           <section className="bg-zinc-900 border border-brand-gold/30 rounded-2xl overflow-hidden shadow-[0_0_20px_rgba(255,204,0,0.05)]">
             <div className="bg-brand-gold/10 px-5 py-3 border-b border-brand-gold/20 flex justify-between items-center">
@@ -328,14 +324,12 @@ export default function AdminPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                  {/* Controles de Votos */}
                   <div className="flex items-center bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden mr-2">
                     <button onClick={() => updateVotes(song, song.votes - 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-purple transition-colors">-</button>
                     <span className="px-3 py-2 font-bold min-w-[2.5rem] text-center text-sm">{song.votes}</span>
                     <button onClick={() => updateVotes(song, song.votes + 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-green transition-colors">+</button>
                   </div>
 
-                  {/* Forzar Reproducción */}
                   <button
                     onClick={() => handleForcePlay(song.id)}
                     disabled={song.available === false}
@@ -345,7 +339,6 @@ export default function AdminPage() {
                     <Play size={18} className="translate-x-[1px]" />
                   </button>
 
-                  {/* Toggle Visibilidad */}
                   <button onClick={() => toggleAvailability(song.id)} className={`p-2.5 rounded-lg transition-colors border ${song.available !== false ? 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:bg-zinc-800' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`} title={song.available !== false ? t.hideSong : t.showSong}>
                     {song.available !== false ? <Eye size={18} /> : <EyeOff size={18} />}
                   </button>
@@ -356,7 +349,6 @@ export default function AdminPage() {
         </section>
       </main>
 
-      {/* Scroll to Top */}
       {showScroll && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -378,7 +370,7 @@ export default function AdminPage() {
 }
 
 function StatsModal({ onClose, t, catalog }) {
-  const [range, setRange] = useState('hoy'); // hoy, semana, mes, total
+  const [range, setRange] = useState('hoy'); 
   const [data, setData] = useState({ plays: {}, votes: {}, time: {} });
   const [loading, setLoading] = useState(true);
 
@@ -462,9 +454,11 @@ function StatsModal({ onClose, t, catalog }) {
 
     const timeData = data.time;
     const isHoy = range === 'hoy';
+    
+    // HORAS REALES DE TU LOCAL: de 18:00 a 01:00 (cubriendo hasta el cierre)
     const keys = isHoy
-      ? Array.from({ length: 24 }, (_, i) => i.toString())
-      : Array.from({ length: 7 }, (_, i) => i.toString());
+      ? ['18', '19', '20', '21', '22', '23', '0', '1']
+      : Array.from({ length: 7 }, (_, i) => ((i + 1) % 7).toString());
 
     const maxCount = Math.max(...Object.values(timeData), 0) || 1;
 
@@ -487,7 +481,7 @@ function StatsModal({ onClose, t, catalog }) {
                   ></div>
                 </div>
                 <span className="text-[10px] text-zinc-500">
-                  {isHoy ? key : t.daysShort[parseInt(key)]}
+                  {isHoy ? `${key}h` : t.daysShort[parseInt(key)]}
                 </span>
               </div>
             );
