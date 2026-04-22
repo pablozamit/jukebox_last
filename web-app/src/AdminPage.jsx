@@ -10,6 +10,7 @@ export default function AdminPage() {
   const [catalog, setCatalog] = useState([]);
   const [activeQueue, setActiveQueue] = useState({});
   const [nowPlaying, setNowPlaying] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
   const [searchTerm, setSearchTerm] = useState('');
   const [showScroll, setShowScroll] = useState(false);
@@ -153,14 +154,21 @@ export default function AdminPage() {
       ...song,
       votes: activeQueue[song.id]?.votes || 0,
       firstVotedAt: activeQueue[song.id]?.firstVotedAt || null
-    }))
+    }));
+
+  const nextInQueue = mergedSongs
+    .filter(s => s.votes > 0)
     .sort((a, b) => {
       if (b.votes !== a.votes) return b.votes - a.votes;
-      if (a.firstVotedAt && b.firstVotedAt) return a.firstVotedAt - b.firstVotedAt;
-      return 0;
+      return (a.firstVotedAt || 0) - (b.firstVotedAt || 0);
     });
 
-  const nextInQueue = mergedSongs.filter(s => s.votes > 0);
+  const filteredCatalog = mergedSongs
+    .filter(song => song.title.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => {
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      return a.title.localeCompare(b.title);
+    });
 
   const filteredCatalog = mergedSongs.filter(song =>
     song.title.toLowerCase().includes(searchTerm.toLowerCase())
@@ -311,31 +319,45 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                {/* Controles de Votos */}
-                <div className="flex items-center bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden mr-2">
-                  <button onClick={() => updateVotes(song, song.votes - 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-purple">-</button>
-                  <span className="px-3 py-2 font-bold min-w-[2.5rem] text-center text-sm">{song.votes}</span>
-                  <button onClick={() => updateVotes(song, song.votes + 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-green">+</button>
+                <div className="flex-1 min-w-0 w-full">
+                  <h4 className={`font-bold truncate ${song.available === false ? 'line-through text-zinc-500' : 'text-white'}`}>{song.title}</h4>
+                  <div className="text-sm text-zinc-400 mt-2 flex items-center gap-3">
+                    <span className="flex items-center gap-1 font-medium">
+                      <Flame size={14} className={song.votes > 0 ? "text-brand-gold" : "text-zinc-600"} />
+                      <span className={song.votes > 0 ? "text-brand-gold font-bold" : ""}>{song.votes} {song.votes === 1 ? t.vote : t.votes}</span>
+                    </span>
+                    {song.available === false && (
+                      <span className="text-red-400 text-[10px] font-bold uppercase tracking-wider bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">{t.hidden}</span>
+                    )}
+                  </div>
                 </div>
 
-                {/* Forzar Reproducción */}
-                <button 
-                  onClick={() => handleForcePlay(song.id)} 
-                  disabled={song.available === false}
-                  className={`p-2.5 rounded-lg flex items-center justify-center transition-colors ${song.available === false ? 'bg-zinc-800 text-zinc-600' : 'bg-brand-neon-green/10 text-brand-neon-green hover:bg-brand-neon-green/30'}`} 
-                  title={t.playNext}
-                >
-                  <Play size={18} className="translate-x-[1px]" />
-                </button>
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                  {/* Controles de Votos */}
+                  <div className="flex items-center bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden mr-2">
+                    <button onClick={() => updateVotes(song, song.votes - 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-purple transition-colors">-</button>
+                    <span className="px-3 py-2 font-bold min-w-[2.5rem] text-center text-sm">{song.votes}</span>
+                    <button onClick={() => updateVotes(song, song.votes + 1)} className="px-3 py-2 hover:bg-zinc-800 text-brand-neon-green transition-colors">+</button>
+                  </div>
 
-                {/* Toggle Visibilidad */}
-                <button onClick={() => toggleAvailability(song.id)} className={`p-2.5 rounded-lg transition-colors border ${song.available !== false ? 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:bg-zinc-800' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`} title={song.available !== false ? t.hideSong : t.showSong}>
-                  {song.available !== false ? <Eye size={18} /> : <EyeOff size={18} />}
-                </button>
+                  {/* Forzar Reproducción */}
+                  <button
+                    onClick={() => handleForcePlay(song.id)}
+                    disabled={song.available === false}
+                    className={`p-2.5 rounded-lg flex items-center justify-center transition-colors ${song.available === false ? 'bg-zinc-800 text-zinc-600' : 'bg-brand-neon-green/10 text-brand-neon-green hover:bg-brand-neon-green/30'}`}
+                    title={t.playNext}
+                  >
+                    <Play size={18} className="translate-x-[1px]" />
+                  </button>
+
+                  {/* Toggle Visibilidad */}
+                  <button onClick={() => toggleAvailability(song.id)} className={`p-2.5 rounded-lg transition-colors border ${song.available !== false ? 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:bg-zinc-800' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`} title={song.available !== false ? t.hideSong : t.showSong}>
+                    {song.available !== false ? <Eye size={18} /> : <EyeOff size={18} />}
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </section>
       </main>
 
