@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, arrayUnion } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3 } from 'lucide-react';
+import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
 
@@ -22,6 +22,7 @@ export default function App() {
   const [showScroll, setShowScroll] = useState(false);
   const [suggested, setSuggested] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
 
   const t = translations[lang];
 
@@ -129,6 +130,48 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  const handleRemoveAction = async (songId, isProposal) => {
+    if (!userId) return;
+
+    try {
+      const userRef = doc(db, 'users', userId);
+      let updatedVotes = [...userVotes];
+      let updatedProposals = [...userProposals];
+      let removed = false;
+
+      const voteIndex = updatedVotes.indexOf(songId);
+      if (voteIndex !== -1) {
+        updatedVotes.splice(voteIndex, 1);
+        await updateDoc(userRef, { votes: updatedVotes });
+        removed = true;
+      } else {
+        const proposalIndex = updatedProposals.indexOf(songId);
+        if (proposalIndex !== -1) {
+          updatedProposals.splice(proposalIndex, 1);
+          await updateDoc(userRef, { proposals: updatedProposals });
+          removed = true;
+        }
+      }
+
+      if (removed) {
+        const currentVotes = activeQueue[songId]?.votes || 0;
+        const songRef = doc(db, 'songs', songId);
+
+        if (currentVotes <= 1) {
+          await deleteDoc(songRef);
+        } else {
+          await updateDoc(songRef, {
+            votes: increment(-1)
+          });
+        }
+        console.log("Acción deshecha con éxito");
+      }
+    } catch (error) {
+      alert(t.firebaseError + error.message);
+      console.error(error);
+    }
+  };
 
   const handleVote = async (song) => {
     if (!userId) {
@@ -408,15 +451,24 @@ export default function App() {
           {/* Queue Section (Fixed/Sticky) */}
           {queueSongs.length > 0 && (
             <div className="bg-zinc-900/50 border border-brand-gold/20 rounded-2xl overflow-hidden shadow-inner">
-              <div className="bg-brand-gold/10 px-4 py-2 border-b border-brand-gold/20 flex justify-between items-center">
-                <span className="text-[10px] font-bold text-brand-gold uppercase tracking-[0.2em]">{t.nextInQueue}</span>
-                <span className="text-[10px] font-bold text-brand-gold/60">{queueSongs.length}</span>
+              <div
+                onClick={() => setIsQueueCollapsed(!isQueueCollapsed)}
+                className="bg-brand-gold/10 px-4 py-2 border-b border-brand-gold/20 flex justify-between items-center cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-brand-gold uppercase tracking-[0.2em]">{t.nextInQueue}</span>
+                  <span className="text-[10px] font-bold text-brand-gold/60">{queueSongs.length}</span>
+                </div>
+                {isQueueCollapsed ? <ChevronDown size={14} className="text-brand-gold" /> : <ChevronUp size={14} className="text-brand-gold" />}
               </div>
-              <div className="max-h-[35vh] overflow-y-auto custom-scrollbar divide-y divide-zinc-800/50">
-                {queueSongs.map((song) => {
+              {!isQueueCollapsed && (
+                <div className="max-h-[35vh] overflow-y-auto custom-scrollbar divide-y divide-zinc-800/50">
+                  {queueSongs.map((song) => {
                   const isTop = song.id === topSongId;
                   const isNowPlaying = nowPlaying?.title === song.title;
                   const limitReached = userVotes.length >= 5;
+                  const hasVoted = userVotes.includes(song.id);
+                  const hasProposed = userProposals.includes(song.id);
 
                   const songCooldown = cooldowns[song.id];
                   const isCoolingDown = songCooldown && (currentTime - songCooldown < 3600000);
@@ -441,6 +493,15 @@ export default function App() {
                         </div>
                       </div>
 
+                      {(hasVoted || hasProposed) && (
+                        <button
+                          onClick={() => handleRemoveAction(song.id, hasProposed)}
+                          className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+
                       <button
                         onClick={() => handleVote(song)}
                         disabled={isNowPlaying || limitReached || !isBridgeActive || isCoolingDown}
@@ -457,9 +518,10 @@ export default function App() {
                             : t.voteButton}
                       </button>
                     </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
