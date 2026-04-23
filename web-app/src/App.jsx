@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
+import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
 
@@ -23,6 +23,8 @@ export default function App() {
   const [suggested, setSuggested] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
+  const [allUsers, setAllUsers] = useState([]);
+  const [activeUsersCount, setActiveUsersCount] = useState(0);
 
   const t = translations[lang];
 
@@ -130,6 +132,30 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // 3. All Users Listener (for active users count)
+  useEffect(() => {
+    const usersRef = collection(db, 'users');
+    const unsubscribe = onSnapshot(usersRef, (snapshot) => {
+      const usersList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setAllUsers(usersList);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 4. Calculate Active Users Count
+  useEffect(() => {
+    const queueKeys = Object.keys(activeQueue);
+    const count = allUsers.filter(user => {
+      const hasActiveProposal = (user.proposals || []).some(id => queueKeys.includes(id));
+      const hasActiveVote = (user.votes || []).some(id => queueKeys.includes(id));
+      return hasActiveProposal || hasActiveVote;
+    }).length;
+    setActiveUsersCount(count);
+  }, [allUsers, activeQueue]);
 
   const handleRemoveAction = async (songId, isProposal) => {
     if (!userId) return;
@@ -455,11 +481,17 @@ export default function App() {
                 onClick={() => setIsQueueCollapsed(!isQueueCollapsed)}
                 className="bg-brand-gold/10 px-4 py-2 border-b border-brand-gold/20 flex justify-between items-center cursor-pointer"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-4">
                   <span className="text-[10px] font-bold text-brand-gold uppercase tracking-[0.2em]">{t.nextInQueue}</span>
-                  <span className="text-[10px] font-bold text-brand-gold/60">{queueSongs.length}</span>
+                  <div className="flex items-center gap-1.5">
+                    <Users size={14} className="text-brand-gold" />
+                    <span className="text-[10px] font-bold text-brand-gold/60">{activeUsersCount}</span>
+                  </div>
                 </div>
-                {isQueueCollapsed ? <ChevronDown size={14} className="text-brand-gold" /> : <ChevronUp size={14} className="text-brand-gold" />}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-brand-gold/60">{queueSongs.length}</span>
+                  {isQueueCollapsed ? <ChevronDown size={14} className="text-brand-gold" /> : <ChevronUp size={14} className="text-brand-gold" />}
+                </div>
               </div>
               {!isQueueCollapsed && (
                 <div className="max-h-[35vh] overflow-y-auto custom-scrollbar divide-y divide-zinc-800/50">
