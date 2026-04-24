@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users } from 'lucide-react';
+import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, TrendingUp } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
 
@@ -714,7 +714,7 @@ export default function App() {
 
 function StatsModal({ onClose, t, catalog }) {
   const [range, setRange] = useState('hoy'); 
-  const [data, setData] = useState({ plays: {}, votes: {}, time: {} });
+  const [data, setData] = useState({ plays: {}, votes: {}, time: {}, plays_total: {}, votes_total: {} });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -722,27 +722,39 @@ function StatsModal({ onClose, t, catalog }) {
       setLoading(true);
       try {
         const statsRef = collection(db, 'statistics');
-        const docsToFetch = [
+
+        // Use a Set to avoid redundant fetches if range is 'total'
+        const docsSet = new Set([
           `plays_${range}`,
           `votes_${range}`,
-        ];
+          'plays_total',
+          'votes_total'
+        ]);
         if (range === 'hoy' || range === 'semana') {
-          docsToFetch.push(`time_${range}`);
+          docsSet.add(`time_${range}`);
         }
 
+        const docsToFetch = Array.from(docsSet);
         const results = await Promise.all(
           docsToFetch.map(id => getDoc(doc(statsRef, id)))
         );
 
-        const newData = { plays: {}, votes: {}, time: {} };
+        const newData = { plays: {}, votes: {}, time: {}, plays_total: {}, votes_total: {} };
+        const resultsMap = {};
         results.forEach((docSnap, index) => {
           if (docSnap.exists()) {
-            const id = docsToFetch[index];
-            if (id.startsWith('plays')) newData.plays = docSnap.data();
-            else if (id.startsWith('votes')) newData.votes = docSnap.data();
-            else if (id.startsWith('time')) newData.time = docSnap.data();
+            resultsMap[docsToFetch[index]] = docSnap.data();
           }
         });
+
+        newData.plays = resultsMap[`plays_${range}`] || {};
+        newData.votes = resultsMap[`votes_${range}`] || {};
+        newData.plays_total = resultsMap['plays_total'] || {};
+        newData.votes_total = resultsMap['votes_total'] || {};
+        if (range === 'hoy' || range === 'semana') {
+          newData.time = resultsMap[`time_${range}`] || {};
+        }
+
         setData(newData);
       } catch (error) {
         console.error("Error fetching stats:", error);
@@ -785,6 +797,44 @@ function StatsModal({ onClose, t, catalog }) {
                   style={{ width: `${(item.count / maxCount) * 100}%` }}
                 ></div>
               </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAvgVoteCost = () => {
+    const playsTotal = data.plays_total || {};
+    const votesTotal = data.votes_total || {};
+
+    const avgList = Object.entries(playsTotal)
+      .filter(([, plays]) => plays >= 2)
+      .map(([id, plays]) => {
+        const votes = votesTotal[id] || 0;
+        const avg = votes / plays;
+        const song = catalog.find(s => s.id === id);
+        return { id, avg, title: song ? song.title : id };
+      })
+      .sort((a, b) => b.avg - a.avg);
+
+    if (avgList.length === 0) return null;
+
+    return (
+      <div className="space-y-4">
+        <h3 className="text-brand-gold font-bold uppercase tracking-wider text-sm flex items-center gap-2">
+          <TrendingUp size={16} />
+          {t.avgVoteCostTitle}
+        </h3>
+        <div className="space-y-3 bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800">
+          {avgList.map((item) => (
+            <div key={item.id} className="flex justify-between items-center text-xs">
+              <span className="text-zinc-300 truncate pr-4">{item.title}</span>
+              <span className={`font-bold tabular-nums ${
+                item.avg >= 2 ? 'text-brand-gold' : item.avg < 1.5 ? 'text-zinc-400' : 'text-zinc-300'
+              }`}>
+                {item.avg.toFixed(1)}v
+              </span>
             </div>
           ))}
         </div>
@@ -884,6 +934,7 @@ function StatsModal({ onClose, t, catalog }) {
                 {renderTimeChart()}
                 {renderTopList(data.votes, 'votes')}
                 {renderTopList(data.plays, 'plays')}
+                {renderAvgVoteCost()}
               </>
             )}
           </>

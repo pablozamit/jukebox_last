@@ -76,7 +76,8 @@ export const translations = {
     daysShort: ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"],
     suggestionsTitle: "Sugerencias",
     noSuggestions: "No hay sugerencias",
-    confirmDelete: "¿Estás seguro de que quieres borrar la sugerencia '{title}'?"
+    confirmDelete: "¿Estás seguro de que quieres borrar la sugerencia '{title}'?",
+    avgVoteCostTitle: "Coste medio de votos por canción"
   },
   en: {
     loading: "Loading...",
@@ -155,6 +156,7 @@ export const translations = {
     daysShort: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
     suggestionsTitle: "Suggestions",
     noSuggestions: "No suggestions",
-    confirmDelete: "Are you sure you want to delete the suggestion '{title}'?"
+    confirmDelete: "Are you sure you want to delete the suggestion '{title}'?",
+    avgVoteCostTitle: "Average vote cost per song"
   }
 };
