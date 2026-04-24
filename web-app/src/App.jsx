@@ -699,14 +699,15 @@ function StatsModal({ onClose, t, catalog }) {
       setLoading(true);
       try {
         const statsRef = collection(db, 'statistics');
-        const baseDocs = [`plays_${range}`, `votes_${range}`];
-        
-        // Siempre cogemos el histórico total para el cálculo del coste medio
-        if (range !== 'total') {
-          baseDocs.push('plays_total', 'votes_total');
-        }
-        if (range === 'hoy' || range === 'semana') {
-          baseDocs.push(`time_${range}`);
+        let baseDocs = [];
+
+        if (range === 'cost') {
+          baseDocs = ['plays_total', 'votes_total'];
+        } else {
+          baseDocs = [`plays_${range}`, `votes_${range}`];
+          if (range === 'hoy' || range === 'semana') {
+            baseDocs.push(`time_${range}`);
+          }
         }
 
         const results = await Promise.all(
@@ -725,9 +726,9 @@ function StatsModal({ onClose, t, catalog }) {
           }
         });
 
-        if (range === 'total') {
-          newData.playsTotal = newData.plays;
-          newData.votesTotal = newData.votes;
+        if (range === 'total' || range === 'cost') {
+          newData.playsTotal = newData.playsTotal || newData.plays;
+          newData.votesTotal = newData.votesTotal || newData.votes;
         }
 
         setData(newData);
@@ -845,7 +846,7 @@ function StatsModal({ onClose, t, catalog }) {
     const topAvgs = avgCosts.slice(0, 5);
 
     return (
-      <div className="space-y-4 pt-4 border-t border-zinc-800">
+      <div className="space-y-4">
         <h3 className="text-brand-gold font-bold uppercase tracking-wider text-sm flex items-center gap-2">
           <BarChart3 size={16} />
           {t.avgVoteCostTitle}
@@ -876,12 +877,13 @@ function StatsModal({ onClose, t, catalog }) {
         </button>
       </header>
 
-      <nav className="flex p-2 gap-1 bg-zinc-900 border-b border-zinc-800">
+      <nav className="flex p-2 gap-1 bg-zinc-900 border-b border-zinc-800 overflow-x-auto custom-scrollbar">
         {[
           { id: 'hoy', label: t.statsToday },
           { id: 'semana', label: t.statsWeek },
           { id: 'mes', label: t.statsMonth },
-          { id: 'total', label: t.statsTotal }
+          { id: 'total', label: t.statsTotal },
+          { id: 'cost', label: t.statsCost }
         ].map(tab => (
           <button
             key={tab.id}
@@ -904,17 +906,27 @@ function StatsModal({ onClose, t, catalog }) {
           </div>
         ) : (
           <>
-            {Object.keys(data.plays).length === 0 && Object.keys(data.votes).length === 0 ? (
-              <div className="text-center py-20 text-zinc-600">
-                <BarChart3 size={48} className="mx-auto mb-4 opacity-20" />
-                <p>{t.noStats}</p>
-              </div>
+            {range === 'cost' ? (
+              renderAvgCostList() || (
+                <div className="text-center py-20 text-zinc-600">
+                  <BarChart3 size={48} className="mx-auto mb-4 opacity-20" />
+                  <p>{t.noStats}</p>
+                </div>
+              )
             ) : (
               <>
-                {renderTimeChart()}
-                {renderTopList(data.votes, 'votes')}
-                {renderTopList(data.plays, 'plays')}
-                {renderAvgCostList()}
+                {Object.keys(data.plays).length === 0 && Object.keys(data.votes).length === 0 ? (
+                  <div className="text-center py-20 text-zinc-600">
+                    <BarChart3 size={48} className="mx-auto mb-4 opacity-20" />
+                    <p>{t.noStats}</p>
+                  </div>
+                ) : (
+                  <>
+                    {renderTimeChart()}
+                    {renderTopList(data.votes, 'votes')}
+                    {renderTopList(data.plays, 'plays')}
+                  </>
+                )}
               </>
             )}
           </>
