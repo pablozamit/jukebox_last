@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users } from 'lucide-react';
 import { db, auth } from './firebase';
@@ -53,7 +53,6 @@ export default function App() {
         setUserId(user.uid);
         const userRef = doc(db, 'users', user.uid);
         
-        // Ensure user document exists
         const userDoc = await getDoc(userRef);
         if(!userDoc.exists()){
           await setDoc(userRef, { proposals: [], votes: [] });
@@ -78,7 +77,6 @@ export default function App() {
     };
   }, []);
 
-  // Now Playing listener
   useEffect(() => {
     const stateRef = doc(db, 'state', 'nowPlaying');
     const unsubscribe = onSnapshot(stateRef, (docSnap) => {
@@ -89,7 +87,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Cooldowns listener
   useEffect(() => {
     const cooldownsRef = doc(db, 'state', 'cooldowns');
     const unsubscribe = onSnapshot(cooldownsRef, (docSnap) => {
@@ -100,7 +97,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Clock for force re-render and time calculations
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(Date.now());
@@ -108,7 +104,6 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 1. Static Catalog Listener
   useEffect(() => {
     const catalogRef = doc(db, 'catalog', 'full_list');
     const unsubscribe = onSnapshot(catalogRef, (docSnap) => {
@@ -120,7 +115,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Active Queue Listener (songs with votes)
   useEffect(() => {
     const songsRef = collection(db, 'songs');
     const unsubscribe = onSnapshot(songsRef, (snapshot) => {
@@ -133,7 +127,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 3. All Users Listener (for active users count)
   useEffect(() => {
     const usersRef = collection(db, 'users');
     const unsubscribe = onSnapshot(usersRef, (snapshot) => {
@@ -146,7 +139,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 4. Calculate Active Users Count
   useEffect(() => {
     const queueKeys = Object.keys(activeQueue);
     const count = allUsers.filter(user => {
@@ -235,7 +227,6 @@ export default function App() {
         firstVotedAt: isProposal ? Date.now() : (activeQueue[song.id]?.firstVotedAt || Date.now())
       }, { merge: true });
 
-      // Update Statistics
       const now = new Date();
       let hour = now.getHours();
       let day = now.getDay();
@@ -334,11 +325,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans selection:bg-brand-neon-purple/30">
-      
-      {/* Header Fijo */}
       <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-brand-gold/20 p-2 sm:p-4 shrink-0">
         <div className="max-w-lg mx-auto flex items-center justify-between gap-2">
-          {/* Stats button on the left to balance and avoid overlap */}
           <button
             onClick={() => setShowStats(true)}
             className="text-brand-gold hover:text-white transition-colors p-2"
@@ -376,8 +364,6 @@ export default function App() {
       </header>
 
       <main className="p-4 space-y-6 max-w-lg mx-auto">
-        
-        {/* Ayuda / How it works */}
         <button
           onClick={() => { setHelpStep(0); setShowHelp(true); }}
           className="w-full flex items-center justify-center gap-2 py-2 text-zinc-500 hover:text-brand-neon-purple transition-colors text-sm font-medium"
@@ -386,7 +372,6 @@ export default function App() {
           {t.howItWorks}
         </button>
 
-        {/* Ahora Sonando */}
         <section className="bg-zinc-900 border border-brand-neon-purple/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(176,38,255,0.15)] relative overflow-hidden text-center">
           <div className="absolute top-0 right-0 w-32 h-32 bg-brand-neon-purple/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
           
@@ -403,7 +388,6 @@ export default function App() {
 
               <Disc3 size={48} className="animate-[spin_4s_linear_infinite] text-brand-neon-purple mx-auto my-4 opacity-80" />
 
-              {/* Progress Bar */}
               <div className="space-y-2 text-left">
                 <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
                   <div
@@ -434,9 +418,7 @@ export default function App() {
           )}
         </section>
 
-        {/* Sticky Section for Status, Search and Queue */}
         <div className="sticky top-[100px] z-40 bg-zinc-950 space-y-4 pb-4 border-b border-zinc-800/50 shadow-2xl">
-          {/* User Status Banner */}
           <div className="flex gap-2">
             <div className={`flex-1 rounded-xl p-3 text-center text-sm font-medium border shadow-lg transition-colors duration-300 ${
               userProposals.length < 3
@@ -454,7 +436,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={20} />
             <input
@@ -474,7 +455,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Queue Section (Fixed/Sticky) */}
           {queueSongs.length > 0 && (
             <div className="bg-zinc-900/50 border border-brand-gold/20 rounded-2xl overflow-hidden shadow-inner">
               <div
@@ -558,7 +538,6 @@ export default function App() {
           )}
         </div>
 
-        {/* Catalog Section */}
         <section className="space-y-3 pt-2">
           <div className="flex items-center gap-2 px-1 mb-4">
              <div className="h-px flex-1 bg-zinc-800"></div>
@@ -641,7 +620,6 @@ export default function App() {
 
       </main>
 
-      {/* Help Modal */}
       {showHelp && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-sm">
           <div className="bg-zinc-900 border border-brand-gold/30 rounded-3xl p-8 max-w-sm w-full shadow-[0_0_50px_rgba(255,204,0,0.1)] relative">
@@ -692,7 +670,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Scroll to Top */}
       {showScroll && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -714,7 +691,7 @@ export default function App() {
 
 function StatsModal({ onClose, t, catalog }) {
   const [range, setRange] = useState('hoy'); 
-  const [data, setData] = useState({ plays: {}, votes: {}, time: {} });
+  const [data, setData] = useState({ plays: {}, votes: {}, time: {}, playsTotal: {}, votesTotal: {} });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -722,27 +699,37 @@ function StatsModal({ onClose, t, catalog }) {
       setLoading(true);
       try {
         const statsRef = collection(db, 'statistics');
-        const docsToFetch = [
-          `plays_${range}`,
-          `votes_${range}`,
-        ];
+        const baseDocs = [`plays_${range}`, `votes_${range}`];
+        
+        // Siempre cogemos el histórico total para el cálculo del coste medio
+        if (range !== 'total') {
+          baseDocs.push('plays_total', 'votes_total');
+        }
         if (range === 'hoy' || range === 'semana') {
-          docsToFetch.push(`time_${range}`);
+          baseDocs.push(`time_${range}`);
         }
 
         const results = await Promise.all(
-          docsToFetch.map(id => getDoc(doc(statsRef, id)))
+          baseDocs.map(id => getDoc(doc(statsRef, id)))
         );
 
-        const newData = { plays: {}, votes: {}, time: {} };
+        const newData = { plays: {}, votes: {}, time: {}, playsTotal: {}, votesTotal: {} };
         results.forEach((docSnap, index) => {
           if (docSnap.exists()) {
-            const id = docsToFetch[index];
-            if (id.startsWith('plays')) newData.plays = docSnap.data();
-            else if (id.startsWith('votes')) newData.votes = docSnap.data();
-            else if (id.startsWith('time')) newData.time = docSnap.data();
+            const id = baseDocs[index];
+            if (id === `plays_${range}`) newData.plays = docSnap.data();
+            else if (id === `votes_${range}`) newData.votes = docSnap.data();
+            else if (id === `time_${range}`) newData.time = docSnap.data();
+            else if (id === 'plays_total') newData.playsTotal = docSnap.data();
+            else if (id === 'votes_total') newData.votesTotal = docSnap.data();
           }
         });
+
+        if (range === 'total') {
+          newData.playsTotal = newData.plays;
+          newData.votesTotal = newData.votes;
+        }
+
         setData(newData);
       } catch (error) {
         console.error("Error fetching stats:", error);
@@ -798,7 +785,7 @@ function StatsModal({ onClose, t, catalog }) {
     const timeData = data.time;
     const isHoy = range === 'hoy';
     
-    // HORAS REALES DE TU LOCAL: de 18:00 a 01:00 (cubriendo hasta el cierre)
+    // HORAS REALES DE TU LOCAL: de 18:00 a 01:00
     const keys = isHoy
       ? ['18', '19', '20', '21', '22', '23', '0', '1']
       : Array.from({ length: 7 }, (_, i) => ((i + 1) % 7).toString());
@@ -829,6 +816,49 @@ function StatsModal({ onClose, t, catalog }) {
               </div>
             );
           })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAvgCostList = () => {
+    if (!data.playsTotal || !data.votesTotal || Object.keys(data.playsTotal).length === 0) return null;
+
+    const avgCosts = [];
+    for (const [songId, plays] of Object.entries(data.playsTotal)) {
+      if (plays >= 2) { // Filtramos para que hayan sonado mínimo 2 veces
+        const votes = data.votesTotal[songId] || 0;
+        const avg = votes / plays;
+        const song = catalog.find(s => s.id === songId);
+        avgCosts.push({
+          id: songId,
+          title: song ? song.title : songId,
+          avg: avg
+        });
+      }
+    }
+
+    if (avgCosts.length === 0) return null;
+
+    // Ordenar de mayor a menor coste
+    avgCosts.sort((a, b) => b.avg - a.avg);
+    const topAvgs = avgCosts.slice(0, 5);
+
+    return (
+      <div className="space-y-4 pt-4 border-t border-zinc-800">
+        <h3 className="text-brand-gold font-bold uppercase tracking-wider text-sm flex items-center gap-2">
+          <BarChart3 size={16} />
+          {t.avgVoteCostTitle}
+        </h3>
+        <div className="space-y-3">
+          {topAvgs.map((item) => (
+            <div key={item.id} className="flex justify-between items-center p-3 bg-zinc-900 border border-zinc-800 rounded-xl">
+              <span className="truncate pr-4 text-sm font-medium text-white">{item.title}</span>
+              <span className={`font-bold text-sm shrink-0 ${item.avg >= 2 ? 'text-brand-gold' : 'text-zinc-400'}`}>
+                {item.avg.toFixed(1)}v
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -884,6 +914,7 @@ function StatsModal({ onClose, t, catalog }) {
                 {renderTimeChart()}
                 {renderTopList(data.votes, 'votes')}
                 {renderTopList(data.plays, 'plays')}
+                {renderAvgCostList()}
               </>
             )}
           </>
