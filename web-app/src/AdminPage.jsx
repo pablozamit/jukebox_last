@@ -436,7 +436,7 @@ export default function AdminPage() {
 
 function StatsModal({ onClose, t, catalog }) {
   const [range, setRange] = useState('hoy'); 
-  const [data, setData] = useState({ plays: {}, votes: {}, time: {} });
+  const [data, setData] = useState({ plays: {}, votes: {}, time: {}, playsTotal: {}, votesTotal: {} });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -444,27 +444,37 @@ function StatsModal({ onClose, t, catalog }) {
       setLoading(true);
       try {
         const statsRef = collection(db, 'statistics');
-        const docsToFetch = [
-          `plays_${range}`,
-          `votes_${range}`,
-        ];
+        const baseDocs = [`plays_${range}`, `votes_${range}`];
+        
+        // Siempre cogemos el histórico total para el cálculo del coste medio
+        if (range !== 'total') {
+          baseDocs.push('plays_total', 'votes_total');
+        }
         if (range === 'hoy' || range === 'semana') {
-          docsToFetch.push(`time_${range}`);
+          baseDocs.push(`time_${range}`);
         }
 
         const results = await Promise.all(
-          docsToFetch.map(id => getDoc(doc(statsRef, id)))
+          baseDocs.map(id => getDoc(doc(statsRef, id)))
         );
 
-        const newData = { plays: {}, votes: {}, time: {} };
+        const newData = { plays: {}, votes: {}, time: {}, playsTotal: {}, votesTotal: {} };
         results.forEach((docSnap, index) => {
           if (docSnap.exists()) {
-            const id = docsToFetch[index];
-            if (id.startsWith('plays')) newData.plays = docSnap.data();
-            else if (id.startsWith('votes')) newData.votes = docSnap.data();
-            else if (id.startsWith('time')) newData.time = docSnap.data();
+            const id = baseDocs[index];
+            if (id === `plays_${range}`) newData.plays = docSnap.data();
+            else if (id === `votes_${range}`) newData.votes = docSnap.data();
+            else if (id === `time_${range}`) newData.time = docSnap.data();
+            else if (id === 'plays_total') newData.playsTotal = docSnap.data();
+            else if (id === 'votes_total') newData.votesTotal = docSnap.data();
           }
         });
+
+        if (range === 'total') {
+          newData.playsTotal = newData.plays;
+          newData.votesTotal = newData.votes;
+        }
+
         setData(newData);
       } catch (error) {
         console.error("Error fetching stats:", error);
@@ -520,7 +530,7 @@ function StatsModal({ onClose, t, catalog }) {
     const timeData = data.time;
     const isHoy = range === 'hoy';
     
-    // HORAS REALES DE TU LOCAL: de 18:00 a 01:00 (cubriendo hasta el cierre)
+    // HORAS REALES DE TU LOCAL: de 18:00 a 01:00
     const keys = isHoy
       ? ['18', '19', '20', '21', '22', '23', '0', '1']
       : Array.from({ length: 7 }, (_, i) => ((i + 1) % 7).toString());
@@ -551,6 +561,49 @@ function StatsModal({ onClose, t, catalog }) {
               </div>
             );
           })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAvgCostList = () => {
+    if (!data.playsTotal || !data.votesTotal || Object.keys(data.playsTotal).length === 0) return null;
+
+    const avgCosts = [];
+    for (const [songId, plays] of Object.entries(data.playsTotal)) {
+      if (plays >= 2) { // Filtramos para que hayan sonado mínimo 2 veces
+        const votes = data.votesTotal[songId] || 0;
+        const avg = votes / plays;
+        const song = catalog.find(s => s.id === songId);
+        avgCosts.push({
+          id: songId,
+          title: song ? song.title : songId,
+          avg: avg
+        });
+      }
+    }
+
+    if (avgCosts.length === 0) return null;
+
+    // Ordenar de mayor a menor coste
+    avgCosts.sort((a, b) => b.avg - a.avg);
+    const topAvgs = avgCosts.slice(0, 5);
+
+    return (
+      <div className="space-y-4 pt-4 border-t border-zinc-800">
+        <h3 className="text-brand-gold font-bold uppercase tracking-wider text-sm flex items-center gap-2">
+          <BarChart3 size={16} />
+          {t.avgVoteCostTitle}
+        </h3>
+        <div className="space-y-3">
+          {topAvgs.map((item) => (
+            <div key={item.id} className="flex justify-between items-center p-3 bg-zinc-900 border border-zinc-800 rounded-xl">
+              <span className="truncate pr-4 text-sm font-medium text-white">{item.title}</span>
+              <span className={`font-bold text-sm shrink-0 ${item.avg >= 2 ? 'text-brand-gold' : 'text-zinc-400'}`}>
+                {item.avg.toFixed(1)}v
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -606,6 +659,7 @@ function StatsModal({ onClose, t, catalog }) {
                 {renderTimeChart()}
                 {renderTopList(data.votes, 'votes')}
                 {renderTopList(data.plays, 'plays')}
+                {renderAvgCostList()}
               </>
             )}
           </>
