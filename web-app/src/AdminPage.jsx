@@ -387,6 +387,16 @@ export default function AdminPage() {
                 <div key={sug.id} className="flex justify-between items-center p-4 hover:bg-white/5 transition-colors">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-white truncate">{sug.title}</p>
+                    {sug.youtubeUrl && (
+                      <a
+                        href={sug.youtubeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-brand-neon-purple hover:underline flex items-center gap-1 mt-1"
+                      >
+                        <Search size={12} /> {sug.youtubeUrl}
+                      </a>
+                    )}
                     <p className="text-[10px] text-zinc-500 mt-1 uppercase tracking-wider">{formatDate(sug.timestamp)}</p>
                   </div>
                   <button

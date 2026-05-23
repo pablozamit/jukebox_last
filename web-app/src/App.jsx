@@ -21,6 +21,8 @@ export default function App() {
   const [helpStep, setHelpStep] = useState(0);
   const [showScroll, setShowScroll] = useState(false);
   const [suggested, setSuggested] = useState(false);
+  const [suggestTitle, setSuggestTitle] = useState('');
+  const [suggestYoutubeUrl, setSuggestYoutubeUrl] = useState('');
   const [showStats, setShowStats] = useState(false);
   const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
   const [allUsers, setAllUsers] = useState([]);
@@ -256,15 +258,24 @@ export default function App() {
     }
   };
 
+  const validateYoutubeUrl = (url) => {
+    const pattern = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/;
+    return pattern.test(url);
+  };
+
   const handleSuggest = async () => {
-    if(!searchTerm || !userId) return;
+    const titleToSuggest = suggestTitle || searchTerm;
+    if(!titleToSuggest || !userId || !validateYoutubeUrl(suggestYoutubeUrl)) return;
     try {
       await addDoc(collection(db, 'suggestions'), {
-        title: searchTerm,
+        title: titleToSuggest,
+        youtubeUrl: suggestYoutubeUrl,
         timestamp: Date.now(),
         userId
       });
       setSuggested(true);
+      setSuggestTitle('');
+      setSuggestYoutubeUrl('');
       setTimeout(() => setSuggested(false), 3000);
     } catch (error) {
       console.error("Error sending suggestion:", error);
@@ -547,24 +558,57 @@ export default function App() {
 
           {filteredCatalog.length === 0 ? (
             searchTerm !== '' ? (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-center space-y-4">
                 <div className="flex justify-center">
-                  <Music2 size={48} className="text-zinc-700" />
+                  <Music2 size={40} className="text-zinc-700" />
                 </div>
-                <div>
+                <div className="space-y-2">
                   <h3 className="text-lg font-bold text-white">{t.suggestTitle}</h3>
-                  <p className="text-zinc-400 text-sm">{t.suggestDesc}</p>
-                  <p className="text-brand-gold italic mt-2">"{searchTerm}"</p>
+                  <p className="text-zinc-400 text-sm">{t.suggestYoutubeNotice}</p>
                 </div>
+
+                <div className="space-y-3 text-left">
+                  <input
+                    type="text"
+                    placeholder={t.suggestSongPlaceholder}
+                    value={suggestTitle || searchTerm}
+                    onChange={(e) => setSuggestTitle(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 text-white text-sm focus:border-brand-neon-purple focus:outline-none transition-all"
+                  />
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder={t.suggestYoutubeUrlPlaceholder}
+                      value={suggestYoutubeUrl}
+                      onChange={(e) => setSuggestYoutubeUrl(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 pr-10 text-white text-sm focus:border-brand-neon-purple focus:outline-none transition-all"
+                    />
+                    {validateYoutubeUrl(suggestYoutubeUrl) && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-neon-green">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(suggestTitle || searchTerm)} videoclip`, '_blank')}
+                    className="w-full py-2 border border-brand-gold/30 text-brand-gold rounded-xl text-xs font-bold hover:bg-brand-gold/10 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Search size={14} />
+                    {t.suggestSearchYoutube}
+                  </button>
+                </div>
+
                 <button
                   onClick={handleSuggest}
-                  disabled={!isBridgeActive}
-                  className={`w-full py-3 rounded-xl font-bold transition-all ${
+                  disabled={!isBridgeActive || !validateYoutubeUrl(suggestYoutubeUrl)}
+                  className={`w-full py-4 rounded-xl font-bold transition-all ${
                     suggested
                       ? 'bg-brand-neon-green/20 text-brand-neon-green'
-                      : !isBridgeActive
+                      : !isBridgeActive || !validateYoutubeUrl(suggestYoutubeUrl)
                         ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
-                        : 'bg-zinc-800 text-white hover:bg-zinc-700'
+                        : 'bg-brand-gold text-zinc-950 hover:scale-[1.02] active:scale-95'
                   }`}
                 >
                   {suggested ? t.suggestSuccess : t.suggestButton}
