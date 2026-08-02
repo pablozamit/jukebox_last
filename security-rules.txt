@@ -65,5 +65,12 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null;
     }
+    // 8. Colección de administradores (admins)
+    // Un usuario puede leer SI PROPIO documento para saber si es admin.
+    // La escritura solo se hace via Admin SDK (Python) o por la regla global.
+    match /admins/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
   }
 }

@@ -1,12 +1,17 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
-import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2, Search, X, ArrowUp, BarChart3, Disc3, Music2 } from 'lucide-react';
-import { db } from './firebase';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, deleteDoc, getDocs, getDoc } from 'firebase/firestore';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2, Search, X, ArrowUp, BarChart3, Disc3, Music2, LogOut } from 'lucide-react';
+import { db, auth } from './firebase';
 import { translations } from './translations';
 
 export default function AdminPage() {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('adminAuth') === 'true');
+  const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginError, setLoginError] = useState('');
   const [catalog, setCatalog] = useState([]);
   const [activeQueue, setActiveQueue] = useState({});
   const [nowPlaying, setNowPlaying] = useState(null);
@@ -30,8 +35,29 @@ export default function AdminPage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Auth state listener — verifica autenticación y permisos de admin
   useEffect(() => {
-    if (!authenticated) return;
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        try {
+          const adminDoc = await getDoc(doc(db, 'admins', firebaseUser.uid));
+          setIsAdmin(adminDoc.exists());
+        } catch (e) {
+          console.error('Error verificando admin:', e);
+          setIsAdmin(false);
+        }
+      } else {
+        setUser(null);
+        setIsAdmin(false);
+      }
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin) return;
     const stateRef = doc(db, 'state', 'nowPlaying');
     const unsubState = onSnapshot(stateRef, (docSnap) => {
       if (docSnap.exists()) setNowPlaying(docSnap.data());
@@ -67,16 +93,20 @@ export default function AdminPage() {
       unsubSongs();
       unsubSuggestions();
     };
-  }, [authenticated]);
+  }, [isAdmin]);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (password === 'vacainfame') {
-      setAuthenticated(true);
-      localStorage.setItem('adminAuth', 'true');
-    } else {
-      alert(t.wrongPassword);
+    setLoginError('');
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      setLoginError(t.wrongCredentials);
     }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
   };
 
   const handleForcePlay = async (songId) => {
@@ -163,7 +193,12 @@ export default function AdminPage() {
     return (nowPlaying.currentTime / nowPlaying.totalTime) * 100;
   };
 
-  if (!authenticated) {
+  if (authLoading) {
+    return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-brand-gold">{t.loading}</div>;
+  }
+
+  // Pantalla de login (usuario no autenticado)
+  if (!user) {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 selection:bg-brand-neon-purple/30 relative">
         <div className="absolute top-6 right-6 flex gap-2">
@@ -193,18 +228,53 @@ export default function AdminPage() {
           </h2>
         </div>
         <form onSubmit={handleLogin} className="bg-zinc-900 p-8 rounded-2xl border border-zinc-800 w-full max-w-sm space-y-6 shadow-[0_0_20px_rgba(176,38,255,0.1)]">
-          <input
-            type="password"
-            placeholder={t.adminPassword}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 text-white focus:border-brand-neon-purple focus:outline-none focus:ring-1 focus:ring-brand-neon-purple transition-all"
-            autoFocus
-          />
+          <div>
+            <input
+              type="email"
+              placeholder={t.adminEmail}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 text-white focus:border-brand-neon-purple focus:outline-none focus:ring-1 focus:ring-brand-neon-purple transition-all"
+              autoFocus
+            />
+          </div>
+          <div>
+            <input
+              type="password"
+              placeholder={t.adminPassword}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 text-white focus:border-brand-neon-purple focus:outline-none focus:ring-1 focus:ring-brand-neon-purple transition-all"
+            />
+          </div>
+          {loginError && (
+            <p className="text-red-400 text-sm text-center">{loginError}</p>
+          )}
           <button type="submit" className="w-full bg-gradient-to-r from-brand-neon-purple to-brand-neon-green text-white font-bold py-3 rounded-xl hover:opacity-90 active:scale-[0.98] transition-all">
             {t.login}
           </button>
         </form>
+      </div>
+    );
+  }
+
+  // Usuario autenticado pero sin permisos de admin
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 selection:bg-brand-neon-purple/30">
+        <div className="text-center space-y-6 max-w-sm">
+          <div>
+            <h1 className="font-serif text-3xl font-black text-brand-gold tracking-widest uppercase mb-2">
+              {t.accessDenied}
+            </h1>
+            <p className="text-zinc-400">{t.accessDeniedDesc}</p>
+          </div>
+          <button onClick={handleLogout} className="bg-zinc-900 border border-zinc-800 text-white font-bold py-3 px-8 rounded-xl hover:bg-zinc-800 transition-all">
+            {t.logout}
+          </button>
+        </div>
       </div>
     );
   }
@@ -283,10 +353,15 @@ export default function AdminPage() {
               🇺🇸
             </button>
           </div>
-          <button onClick={handleSkip} className="bg-red-500/10 border border-red-500/20 text-red-500 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-500/20 transition-colors">
-            <SkipForward size={18} />
-            <span className="hidden sm:inline">{t.skipSong}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleSkip} className="bg-red-500/10 border border-red-500/20 text-red-500 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-500/20 transition-colors">
+              <SkipForward size={18} />
+              <span className="hidden sm:inline">{t.skipSong}</span>
+            </button>
+            <button onClick={handleLogout} className="bg-zinc-800 border border-zinc-700 text-zinc-300 p-2 rounded-lg hover:bg-zinc-700 transition-colors" title={t.logout}>
+              <LogOut size={18} />
+            </button>
+          </div>
         </div>
       </header>
 

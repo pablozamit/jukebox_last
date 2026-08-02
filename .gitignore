@@ -1,9 +1,37 @@
+# Dependencias
 node_modules/
 dist/
+
+# Entorno y claves secretas — NUNCA al repo
 .env
+.env.*
+!.env.example
+serviceAccountKey*.json
+google-services.json
+GoogleService-Info.plist
+*.pem
+*.key
+
+# JSON genérico (excepto configs necesarias del proyecto)
 *.json
 !package.json
 !package-lock.json
 !composer.json
 !.github/workflows/*.json
 !vercel.json
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+env/
+
+# IDE y OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log
