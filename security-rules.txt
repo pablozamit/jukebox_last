@@ -22,13 +22,19 @@ service cloud.firestore {
 
       // Permitir la ACTUALIZACIÓN de votos SOLO si:
       // a) El usuario está logueado.
-      // b) Solo se está modificando 'votes' (incremento de +1) y 'firstVotedAt'.
+      // b) Solo se está modificando 'votes' y 'firstVotedAt'.
+      // c) El incremento es +1 (votar) o -1 (retirar voto).
       allow update: if request.auth != null 
                     && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'firstVotedAt']))
-                    && request.resource.data.votes == resource.data.votes + 1;
+                    && (request.resource.data.votes == resource.data.votes + 1
+                        || request.resource.data.votes == resource.data.votes - 1);
                     
-      // Solo admins pueden borrar (vía regla global)
-      allow delete: if false;
+      // Permitir BORRADO si:
+      // a) El usuario está logueado.
+      // b) La canción tiene 1 voto o menos (era el último voto al retirarlo).
+      // Los admins pueden borrar cualquier canción vía la regla global.
+      allow delete: if request.auth != null
+                    && resource.data.votes <= 1;
     }
 
     // 2. Catálogo completo (Estructura estática)
