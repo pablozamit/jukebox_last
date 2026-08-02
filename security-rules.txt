@@ -50,8 +50,15 @@ service cloud.firestore {
     }
 
     // 4. Usuarios y tokens (users)
+    // El usuario puede leer su propio documento completo.
+    // Solo puede escribir campos seguros (no puntos, logros ni historial).
+    // El bridge (Admin SDK) bypassa estas reglas para escribir puntos, etc.
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.keys().hasOnly(['proposals', 'votes']);
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'freeVotes', 'isRegistered', 'email']);
     }
 
     // 5. Comandos (commands)
@@ -76,6 +83,13 @@ service cloud.firestore {
     // La escritura solo se hace via Admin SDK (Python) o por la regla global.
     match /admins/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // 9. Leaderboard semanal de DJs
+    // Todos pueden leer (para ver el ranking). Solo el bridge escribe.
+    match /leaderboard/{docId} {
+      allow read: if true;
       allow write: if false;
     }
   }

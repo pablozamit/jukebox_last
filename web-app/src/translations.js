@@ -87,7 +87,97 @@ export const translations = {
     suggestionsTitle: "Sugerencias",
     noSuggestions: "No hay sugerencias",
     confirmDelete: "¿Estás seguro de que quieres borrar la sugerencia '{title}'?",
-    avgVoteCostTitle: "Coste medio de votos por canción"
+    avgVoteCostTitle: "Coste medio de votos por canción",
+
+    // === Sistema DJ ===
+    // Registro / Login
+    registerTitle: "Hazte DJ de La Catrina",
+    registerDesc: "Doble de votos, doble de propuestas, puntos, logros y canjea votos gratis.",
+    registerEmail: "Email",
+    registerPassword: "Contraseña (mín. 6 caracteres)",
+    registerButton: "Crear cuenta",
+    loginLink: "¿Ya tienes cuenta? Inicia sesión",
+    loginTitle: "Inicia sesión",
+    loginButton: "Entrar",
+    registerLink: "¿No tienes cuenta? Regístrate",
+    privacyNotice: "La Catrina no comparte ni utiliza tus datos. Solo sirven para que disfrutes de las ventajas de ser DJ.",
+    registerSuccess: "¡Bienvenido, DJ! Ahora tienes el doble de capacidad.",
+    loginSuccess: "¡Bienvenido de vuelta!",
+    authErrorGeneric: "Error al procesar. Intenta de nuevo.",
+    backToGuest: "Seguir como invitado",
+    logoutAccount: "Cerrar sesión",
+
+    // CTA anónimo sin tokens
+    outOfTokensTitle: "Te has quedado sin votos ni propuestas",
+    outOfTokensDesc: "Regístrate y obtén el DOBLE de capacidad (10 votos + 6 propuestas), acumula puntos, desbloquea logros y canjea votos gratis.",
+    registerCta: "Registrarse",
+    maybeLater: "Ahora no",
+
+    // Perfil DJ
+    profileTitle: "Mi Perfil DJ",
+    level: "Nivel",
+    points: "Puntos",
+    totalPointsLabel: "Puntos totales",
+    freeVotesLabel: "Votos gratis",
+    exchangeButton: "Canjear voto (50 pts)",
+    exchangeSuccess: "¡Voto canjeado!",
+    notEnoughPoints: "Necesitas 50 puntos",
+    myStats: "Mis estadísticas",
+    totalVotesCast: "Votos emitidos",
+    totalProposalsMade: "Propuestas hechas",
+    successRate: "Tasa de éxito",
+    nightsVisited: "Noches visitadas",
+    songHistory: "Historial",
+    historyPlayed: "Sonó",
+    historyInQueue: "En cola",
+    historyNotPlayed: "No sonó",
+    historyAll: "Todo",
+    proposed: "Propuesta",
+    votedByYou: "Votada",
+    noHistory: "Aún no tienes actividad. ¡Empieza a votar!",
+
+    // Niveles
+    levelNovato: "DJ Novato",
+    levelAficionado: "DJ Aficionado",
+    levelPro: "DJ Pro",
+    levelMaestro: "DJ Maestro",
+    levelLeyenda: "DJ Leyenda",
+
+    // Logros
+    achievementsTitle: "Logros",
+    achievementFirstVote: "Primer paso",
+    achievementFirstVoteDesc: "Emitiste tu primer voto",
+    achievementProtagonist: "Protagonista",
+    achievementProtagonistDesc: "Una canción que propusiste sonó",
+    achievementHitmaker: "Cazador de éxitos",
+    achievementHitmakerDesc: "Tu canción fue la más votada de la noche",
+    achievementInfluencer: "Influencer",
+    achievementInfluencerDesc: "Una canción que propusiste llegó a 10 votos",
+    achievementStreak: "En racha",
+    achievementStreakDesc: "Votaste 2 noches seguidas",
+    achievementLoyal: "Cliente fiel",
+    achievementLoyalDesc: "Viniste 4 noches distintas",
+    achievementEarlyBird: "Madrugador",
+    achievementEarlyBirdDesc: "Votaste entre las 19:00 y las 20:00",
+    achievementNightOwl: "Resistencia",
+    achievementNightOwlDesc: "Votaste después de la medianoche",
+    achievementUnlocked: "¡Logro desbloqueado!",
+
+    // Banner "tu canción suena"
+    yourSongPlaying: "¡Está sonando tu canción!",
+    proposedByYou: "Propuesta por ti",
+    pointsEarned: "puntos",
+
+    // Leaderboard
+    topDJs: "Top DJs",
+    weeklyPoints: "Puntos de la semana",
+    noDJs: "Aún no hay DJs esta semana",
+    youLabel: "Tú",
+
+    // Capacidad
+    capacityProposals: "propuestas",
+    registeredBadge: "Registrado",
+    guestBadge: "Invitado"
   },
   en: {
     loading: "Loading...",
@@ -177,6 +267,96 @@ export const translations = {
     suggestionsTitle: "Suggestions",
     noSuggestions: "No suggestions",
     confirmDelete: "Are you sure you want to delete the suggestion '{title}'?",
-    avgVoteCostTitle: "Average vote cost per song"
+    avgVoteCostTitle: "Average vote cost per song",
+
+    // === DJ System ===
+    // Register / Login
+    registerTitle: "Become a La Catrina DJ",
+    registerDesc: "Double votes, double proposals, points, achievements and exchange free votes.",
+    registerEmail: "Email",
+    registerPassword: "Password (min. 6 characters)",
+    registerButton: "Create account",
+    loginLink: "Already have an account? Log in",
+    loginTitle: "Log in",
+    loginButton: "Log in",
+    registerLink: "No account? Register",
+    privacyNotice: "La Catrina does not share or use your data. They only serve so you can enjoy the benefits of being a DJ.",
+    registerSuccess: "Welcome, DJ! You now have double capacity.",
+    loginSuccess: "Welcome back!",
+    authErrorGeneric: "Error processing. Try again.",
+    backToGuest: "Continue as guest",
+    logoutAccount: "Log out",
+
+    // CTA anonymous out of tokens
+    outOfTokensTitle: "You're out of votes and proposals",
+    outOfTokensDesc: "Register and get DOUBLE capacity (10 votes + 6 proposals), earn points, unlock achievements and exchange free votes.",
+    registerCta: "Register",
+    maybeLater: "Not now",
+
+    // DJ Profile
+    profileTitle: "My DJ Profile",
+    level: "Level",
+    points: "Points",
+    totalPointsLabel: "Total points",
+    freeVotesLabel: "Free votes",
+    exchangeButton: "Exchange vote (50 pts)",
+    exchangeSuccess: "Vote exchanged!",
+    notEnoughPoints: "You need 50 points",
+    myStats: "My stats",
+    totalVotesCast: "Votes cast",
+    totalProposalsMade: "Proposals made",
+    successRate: "Success rate",
+    nightsVisited: "Nights visited",
+    songHistory: "History",
+    historyPlayed: "Played",
+    historyInQueue: "In queue",
+    historyNotPlayed: "Didn't play",
+    historyAll: "All",
+    proposed: "Proposed",
+    votedByYou: "Voted",
+    noHistory: "No activity yet. Start voting!",
+
+    // Levels
+    levelNovato: "DJ Rookie",
+    levelAficionado: "DJ Enthusiast",
+    levelPro: "DJ Pro",
+    levelMaestro: "DJ Master",
+    levelLeyenda: "DJ Legend",
+
+    // Achievements
+    achievementsTitle: "Achievements",
+    achievementFirstVote: "First step",
+    achievementFirstVoteDesc: "You cast your first vote",
+    achievementProtagonist: "Protagonist",
+    achievementProtagonistDesc: "A song you proposed was played",
+    achievementHitmaker: "Hitmaker",
+    achievementHitmakerDesc: "Your song was the most voted of the night",
+    achievementInfluencer: "Influencer",
+    achievementInfluencerDesc: "A song you proposed reached 10 votes",
+    achievementStreak: "On a streak",
+    achievementStreakDesc: "You voted 2 nights in a row",
+    achievementLoyal: "Loyal customer",
+    achievementLoyalDesc: "You visited 4 different nights",
+    achievementEarlyBird: "Early bird",
+    achievementEarlyBirdDesc: "You voted between 7 PM and 8 PM",
+    achievementNightOwl: "Night owl",
+    achievementNightOwlDesc: "You voted after midnight",
+    achievementUnlocked: "Achievement unlocked!",
+
+    // "Your song is playing" banner
+    yourSongPlaying: "Your song is playing!",
+    proposedByYou: "Proposed by you",
+    pointsEarned: "points",
+
+    // Leaderboard
+    topDJs: "Top DJs",
+    weeklyPoints: "Weekly points",
+    noDJs: "No DJs this week yet",
+    youLabel: "You",
+
+    // Capacity
+    capacityProposals: "proposals",
+    registeredBadge: "Registered",
+    guestBadge: "Guest"
   }
 };

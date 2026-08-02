@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously } from 'firebase/auth';
+import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, User, LogIn, UserPlus } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
+import Profile from './Profile';
 
 export default function App() {
   const [catalog, setCatalog] = useState([]);
@@ -28,7 +29,26 @@ export default function App() {
   const [allUsers, setAllUsers] = useState([]);
   const [activeUsersCount, setActiveUsersCount] = useState(0);
 
+  // === Sistema DJ ===
+  const [userData, setUserData] = useState(null);
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [showRegister, setShowRegister] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showOutTokenCTA, setShowOutTokenCTA] = useState(false);
+  const [showPlayingBanner, setShowPlayingBanner] = useState(false);
+  const [playingBannerData, setPlayingBannerData] = useState(null);
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [authErrorMsg, setAuthErrorMsg] = useState('');
+  const [authMode, setAuthMode] = useState('register');
+  const lastPlayedSongRef = useRef(null);
+
   const t = translations[lang];
+
+  // Límites de capacidad dinámicos por sistema DJ
+  const MAX_PROPOSALS = isRegistered ? 6 : 3;
+  const MAX_VOTES = (isRegistered ? 10 : 5) + (userData?.freeVotes || 0);
 
   useEffect(() => {
     localStorage.setItem('lang', lang);
@@ -53,6 +73,7 @@ export default function App() {
 
       if (user) {
         setUserId(user.uid);
+        setIsRegistered(!!user.email);
         const userRef = doc(db, 'users', user.uid);
         
         const userDoc = await getDoc(userRef);
@@ -65,12 +86,15 @@ export default function App() {
             const data = docSnap.data();
             setUserProposals(data.proposals || []);
             setUserVotes(data.votes || []);
+            setUserData(data);
           }
         });
       } else {
         setUserId(null);
+        setIsRegistered(false);
         setUserProposals([]);
         setUserVotes([]);
+        setUserData(null);
       }
     });
     return () => {
@@ -202,13 +226,15 @@ export default function App() {
     const isProposal = song.votes === 0;
 
     if (isProposal) {
-      if (userProposals.length >= 3) {
-        alert(t.alreadyVoted);
+      if (userProposals.length >= MAX_PROPOSALS) {
+        if (!isRegistered) setShowOutTokenCTA(true);
+        else alert(t.alreadyVoted);
         return;
       }
     } else {
-      if (userVotes.length >= 5) {
-        alert(t.alreadyVoted);
+      if (userVotes.length >= MAX_VOTES) {
+        if (!isRegistered) setShowOutTokenCTA(true);
+        else alert(t.alreadyVoted);
         return;
       }
     }
@@ -257,6 +283,60 @@ export default function App() {
       console.error(error);
     }
   };
+
+  // === Sistema DJ: registro, login, logout ===
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setAuthErrorMsg('');
+    try {
+      const credential = EmailAuthProvider.credential(regEmail, regPassword);
+      await linkWithCredential(auth.currentUser, credential);
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, { isRegistered: true, email: regEmail });
+      setShowRegister(false);
+      setIsRegistered(true);
+    } catch (error) {
+      setAuthErrorMsg(error.code === 'auth/email-already-in-use' ? t.authErrorGeneric : error.message);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthErrorMsg('');
+    try {
+      await signInWithEmailAndPassword(auth, regEmail, regPassword);
+      setShowLogin(false);
+      setIsRegistered(true);
+    } catch (error) {
+      setAuthErrorMsg(t.wrongCredentials);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setShowProfile(false);
+    setShowRegister(false);
+    setShowLogin(false);
+    setIsRegistered(false);
+    signInAnonymously(auth).catch(console.error);
+  };
+
+  // === Banner "¡Tu canción está sonando!" ===
+  useEffect(() => {
+    if (!nowPlaying || !userId) return;
+    const title = nowPlaying.title;
+    if (!title || title === lastPlayedSongRef.current) return;
+    lastPlayedSongRef.current = title;
+
+    const isProposed = (userData?.proposals || []).includes(title);
+    const isVoted = (userData?.votes || []).includes(title);
+    if (isProposed || isVoted) {
+      setPlayingBannerData({ title, isProposed, isVoted });
+      setShowPlayingBanner(true);
+      setTimeout(() => setShowPlayingBanner(false), 8000);
+    }
+  }, [nowPlaying, userId, userData]);
+
 
   const validateYoutubeUrl = (url) => {
     const pattern = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/;
@@ -338,6 +418,14 @@ export default function App() {
     <div className="min-h-screen pb-24 bg-zinc-950 font-sans selection:bg-brand-neon-purple/30">
       <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-brand-gold/20 p-2 sm:p-4 shrink-0">
         <div className="max-w-lg mx-auto flex items-center justify-between gap-2">
+          <button
+            onClick={() => { if (isRegistered) setShowProfile(true); else { setAuthMode('register'); setShowRegister(true); } }}
+            className={`text-white hover:text-brand-neon-purple transition-colors p-2 ${isRegistered ? 'text-brand-gold' : ''}`}
+            title={isRegistered ? t.profileTitle : t.registerCta}
+          >
+            {isRegistered ? <Trophy size={24} /> : <UserPlus size={24} />}
+          </button>
+
           <button
             onClick={() => setShowStats(true)}
             className="text-brand-gold hover:text-white transition-colors p-2"
@@ -489,7 +577,7 @@ export default function App() {
                   {queueSongs.map((song) => {
                   const isTop = song.id === topSongId;
                   const isNowPlaying = nowPlaying?.title === song.title;
-                  const limitReached = userVotes.length >= 5;
+                  const limitReached = userVotes.length >= MAX_VOTES;
                   const hasVoted = userVotes.includes(song.id);
                   const hasProposed = userProposals.includes(song.id);
 
@@ -620,7 +708,7 @@ export default function App() {
           ) : (
             filteredCatalog.map((song) => {
               const isNowPlaying = nowPlaying?.title === song.title;
-              const limitReached = userProposals.length >= 3;
+              const limitReached = userProposals.length >= MAX_PROPOSALS;
               
               const songCooldown = cooldowns[song.id];
               const isCoolingDown = songCooldown && (currentTime - songCooldown < 3600000);
@@ -729,6 +817,82 @@ export default function App() {
           catalog={catalog}
         />
       )}
+
+      {showPlayingBanner && playingBannerData && (
+        <div className="fixed top-16 left-0 right-0 z-[90] flex justify-center px-4 animate-bounce">
+          <div className="bg-gradient-to-r from-brand-neon-purple/20 to-brand-neon-green/20 border border-brand-neon-purple/40 rounded-2xl px-6 py-4 max-w-sm w-full text-center shadow-[0_0_30px_rgba(176,38,255,0.2)]">
+            <p className="text-brand-neon-green font-bold text-sm flex items-center justify-center gap-2">
+              <Disc3 size={18} className="animate-spin" /> {t.yourSongPlaying}
+            </p>
+            <p className="text-white font-bold text-lg mt-1 truncate">{playingBannerData.title}</p>
+            <p className="text-xs text-brand-gold mt-1">
+              {playingBannerData.isProposed ? t.proposedByYou : t.votedByYou}
+            </p>
+          </div>
+        </div>
+      )}
+
+
+      {(showRegister || showLogin) && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-brand-gold/30 rounded-3xl p-8 max-w-sm w-full shadow-[0_0_50px_rgba(255,204,0,0.1)] relative">
+            <button onClick={() => { setShowRegister(false); setShowLogin(false); }} className="absolute top-4 right-4 text-zinc-500 hover:text-white"><X size={24} /></button>
+            <div className="text-center mb-6">
+              <div className="text-5xl mb-2">🎧</div>
+              <h2 className="text-2xl font-bold text-brand-gold uppercase tracking-wider">{authMode === 'register' ? t.registerTitle : t.loginTitle}</h2>
+              <p className="text-sm text-zinc-400 mt-2">{t.registerDesc}</p>
+            </div>
+            <form onSubmit={authMode === 'register' ? handleRegister : handleLogin} className="space-y-4">
+              <input type="email" placeholder={t.registerEmail} value={regEmail} onChange={(e) => setRegEmail(e.target.value)} required
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 text-white focus:border-brand-neon-purple focus:outline-none focus:ring-1 focus:ring-brand-neon-purple transition-all" autoFocus />
+              <input type="password" placeholder={t.registerPassword} value={regPassword} onChange={(e) => setRegPassword(e.target.value)} required minLength={6}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 text-white focus:border-brand-neon-purple focus:outline-none focus:ring-1 focus:ring-brand-neon-purple transition-all" />
+              {authErrorMsg && <p className="text-red-400 text-sm text-center">{authErrorMsg}</p>}
+              <button type="submit" className="w-full bg-gradient-to-r from-brand-neon-purple to-brand-neon-green text-white font-bold py-3 rounded-xl hover:opacity-90 active:scale-[0.98] transition-all">
+                {authMode === 'register' ? t.registerButton : t.loginButton}
+              </button>
+            </form>
+            <button onClick={() => { setAuthMode(authMode === 'register' ? 'login' : 'register'); setAuthErrorMsg(''); }}
+              className="w-full text-center text-sm text-zinc-500 hover:text-brand-gold transition-colors mt-4">
+              {authMode === 'register' ? t.loginLink : t.registerLink}
+            </button>
+            <button onClick={() => { setShowRegister(false); setShowLogin(false); }}
+              className="w-full text-center text-xs text-zinc-600 mt-2">{t.backToGuest}</button>
+            <div className="mt-6 p-3 bg-zinc-950/50 rounded-xl border border-zinc-800">
+              <p className="text-[11px] text-zinc-500 text-center leading-relaxed">🔒 {t.privacyNotice}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showOutTokenCTA && !isRegistered && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-brand-gold/40 rounded-3xl p-8 max-w-sm w-full shadow-[0_0_50px_rgba(255,204,0,0.15)] text-center">
+            <div className="text-5xl mb-3">🎤</div>
+            <h2 className="text-xl font-bold text-brand-gold uppercase tracking-wider mb-3">{t.outOfTokensTitle}</h2>
+            <p className="text-zinc-400 text-sm leading-relaxed mb-2">{t.outOfTokensDesc}</p>
+            <div className="mt-4 p-3 bg-zinc-950/50 rounded-xl border border-zinc-800">
+              <p className="text-[11px] text-zinc-500 leading-relaxed">🔒 {t.privacyNotice}</p>
+            </div>
+            <button onClick={() => { setShowOutTokenCTA(false); setAuthMode('register'); setShowRegister(true); }}
+              className="mt-6 w-full bg-gradient-to-r from-brand-neon-purple to-brand-neon-green text-white font-bold py-3 rounded-xl hover:opacity-90 active:scale-[0.98] transition-all">
+              {t.registerCta}
+            </button>
+            <button onClick={() => setShowOutTokenCTA(false)} className="mt-3 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">{t.maybeLater}</button>
+          </div>
+        </div>
+      )}
+
+      {showProfile && (
+        <Profile
+          userData={userData}
+          userId={userId}
+          t={t}
+          onClose={() => setShowProfile(false)}
+          onLogout={handleLogout}
+        />
+      )}
+
     </div>
   );
 }
@@ -736,6 +900,8 @@ export default function App() {
 function StatsModal({ onClose, t, catalog }) {
   const [range, setRange] = useState('hoy'); 
   const [data, setData] = useState({ plays: {}, votes: {}, time: {}, playsTotal: {}, votesTotal: {} });
+
+
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
