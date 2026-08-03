@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { updateDoc, doc } from 'firebase/firestore';
 import { X, Gift, Trophy, Music, Calendar, TrendingUp, Star } from 'lucide-react';
 import { db } from './firebase';
+import { useTheme } from './ThemeContext';
+import { CornerFlourish } from './Ornaments';
 
 const LEVELS = [
   { min: 0, max: 99, icon: '🎵' },
@@ -18,7 +20,17 @@ const ACHIEVEMENT_ICONS = {
 
 const EXCHANGE_COST = 50;
 
+function getLevelName(min, t) {
+  if (min >= 5000) return t.levelLeyenda;
+  if (min >= 2000) return t.levelMaestro;
+  if (min >= 500) return t.levelPro;
+  if (min >= 100) return t.levelAficionado;
+  return t.levelNovato;
+}
+
 export default function Profile({ userData, userId, t, onClose, onLogout }) {
+  const { theme } = useTheme();
+  const isCatrina = theme === 'catrina';
   const [historyFilter, setHistoryFilter] = useState('all');
   const [exchanging, setExchanging] = useState(false);
   const [exchangeMsg, setExchangeMsg] = useState('');
@@ -65,14 +77,183 @@ export default function Profile({ userData, userId, t, onClose, onLogout }) {
     try {
       await updateDoc(doc(db, 'users', userId), { points: currentPoints - EXCHANGE_COST, freeVotes: freeVotes + 1 });
       setExchangeMsg(t.exchangeSuccess);
-    } catch (error) { setExchangeMsg(t.authErrorGeneric); }
+    } catch { setExchangeMsg(t.authErrorGeneric); }
     setExchanging(false);
   };
 
+  const statusLabels = {
+    played: { label: t.historyPlayed },
+    in_queue: { label: t.historyInQueue },
+    not_played: { label: t.historyNotPlayed },
+  };
+
   return (
-    <div className="fixed inset-0 z-[110] bg-zinc-950 flex flex-col">
-      <header className="p-4 border-b border-brand-gold/20 flex items-center justify-between shrink-0">
-        <h2 className="text-xl font-bold text-brand-gold flex items-center gap-2"><Trophy size={24} />{t.profileTitle}</h2>
-        <button onClick={onClose} className="p-2 text-zinc-400 hover:text-white transition-colors"><X size={24} /></button>
+    <div className="profile-shell fixed inset-0 z-[110] flex flex-col">
+      <header className="profile-header p-4 border-b flex items-center justify-between shrink-0">
+        <h2 className="profile-section-title text-xl font-bold flex items-center gap-2">
+          <Trophy size={24} />{t.profileTitle}
+        </h2>
+        <button onClick={onClose} className="profile-close p-2 transition-colors">
+          <X size={24} />
+        </button>
       </header>
-      <main className="flex-1 overflow-y-auto p-6 space-y-8">
+      <main className="profile-main flex-1 overflow-y-auto p-6 space-y-8">
+        <div className="profile-hero relative overflow-hidden border rounded-2xl p-6 text-center space-y-4">
+          {isCatrina && <>
+            <CornerFlourish position="tl" size={34} />
+            <CornerFlourish position="tr" size={34} />
+            <CornerFlourish position="bl" size={34} />
+            <CornerFlourish position="br" size={34} />
+          </>}
+          <div className={isCatrina ? 'relative z-[1]' : ''}>
+          <div className="flex items-center justify-center gap-2">
+            <span className="text-4xl">{currentLevel.icon}</span>
+            <div className="text-left">
+              <p className="profile-muted text-xs uppercase tracking-wider">{t.level}</p>
+              <p className="profile-level text-xl font-bold">{levelName}</p>
+            </div>
+          </div>
+
+          {nextLevel && (
+            <div className="space-y-1">
+              <div className="profile-muted flex justify-between text-xs">
+                <span>{totalEarned} {t.points}</span>
+                <span>{nextLevelName} ({nextLevel.min})</span>
+              </div>
+              <div className="profile-progress-track h-2 w-full rounded-full overflow-hidden">
+                <div
+                  className="profile-progress-fill h-full rounded-full transition-all"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="profile-muted flex justify-center gap-4 text-xs">
+            <span>
+              <span className="profile-points font-bold">{currentPoints}</span> {t.points}
+            </span>
+            <span>
+              <span className="profile-free-votes font-bold">{freeVotes}</span> {t.freeVotesLabel}
+            </span>
+          </div>
+
+          <button
+            onClick={handleExchange}
+            disabled={exchanging || currentPoints < EXCHANGE_COST}
+            className={`profile-exchange-button w-full py-3 rounded-xl font-bold text-sm transition-all ${
+              currentPoints >= EXCHANGE_COST ? 'profile-exchange-ready active:scale-95' : 'profile-exchange-disabled cursor-not-allowed'
+            }`}
+          >
+            <Gift size={16} className="inline mr-1" />
+            {exchangeMsg || t.exchangeButton}
+          </button>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <h3 className="profile-section-title font-bold uppercase tracking-wider text-sm flex items-center gap-2">
+            <TrendingUp size={16} />{t.myStats}
+          </h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="profile-stat-card rounded-xl p-4 text-center">
+              <Music size={20} className="profile-icon profile-icon-gold mx-auto mb-1" />
+              <p className="profile-stat-value text-2xl font-bold">{totalVotesCast}</p>
+              <p className="profile-stat-label text-xs">{t.totalVotesCast}</p>
+            </div>
+            <div className="profile-stat-card rounded-xl p-4 text-center">
+              <Star size={20} className="profile-icon profile-icon-purple mx-auto mb-1" />
+              <p className="profile-stat-value text-2xl font-bold">{totalProposalsMade}</p>
+              <p className="profile-stat-label text-xs">{t.totalProposalsMade}</p>
+            </div>
+            <div className="profile-stat-card rounded-xl p-4 text-center">
+              <TrendingUp size={20} className="profile-icon profile-icon-green mx-auto mb-1" />
+              <p className="profile-stat-value text-2xl font-bold">{successRate}%</p>
+              <p className="profile-stat-label text-xs">{t.successRate}</p>
+            </div>
+            <div className="profile-stat-card rounded-xl p-4 text-center">
+              <Calendar size={20} className="profile-icon profile-icon-gold mx-auto mb-1" />
+              <p className="profile-stat-value text-2xl font-bold">{nightsVisited}</p>
+              <p className="profile-stat-label text-xs">{t.nightsVisited}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <h3 className="profile-section-title font-bold uppercase tracking-wider text-sm flex items-center gap-2">
+            <Trophy size={16} />{t.achievementsTitle}
+          </h3>
+          <div className="grid grid-cols-2 gap-2">
+            {allAchievements.map((ach) => {
+              const unlocked = achievements.includes(ach.id);
+              return (
+                <div
+                  key={ach.id}
+                  className={`profile-achievement rounded-xl p-3 text-center border transition-all ${
+                    unlocked
+                      ? 'profile-achievement-unlocked'
+                      : 'profile-achievement-locked'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">{ACHIEVEMENT_ICONS[ach.id] || '🏆'}</div>
+                  <p className={`profile-achievement-title text-xs font-bold ${unlocked ? 'profile-unlocked-text' : ''}`}>{ach.title}</p>
+                  <p className="profile-achievement-desc text-[10px] mt-0.5">{ach.desc}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <h3 className="profile-section-title font-bold uppercase tracking-wider text-sm flex items-center gap-2">
+            <Music size={16} />{t.songHistory}
+          </h3>
+          <div className="flex gap-2">
+            {[
+              { id: 'all', label: t.historyAll },
+              { id: 'played', label: t.historyPlayed },
+              { id: 'in_queue', label: t.historyInQueue },
+              { id: 'not_played', label: t.historyNotPlayed },
+            ].map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setHistoryFilter(f.id)}
+                className={`profile-filter px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                  historyFilter === f.id
+                    ? 'profile-filter-active'
+                    : 'profile-filter-inactive'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          {filteredHistory.length === 0 ? (
+            <p className="profile-empty text-sm text-center py-8">{t.noHistory}</p>
+          ) : (
+            <div className="space-y-1">
+              {filteredHistory.map((h, i) => {
+                const status = statusLabels[h.status] || { label: h.status };
+                return (
+                  <div key={i} className="profile-history-item flex items-center justify-between p-3 border rounded-xl">
+                    <span className="profile-history-title text-sm truncate flex-1">{h.title}</span>
+                    <span className={`profile-status profile-status-${h.status} text-xs font-medium shrink-0 ml-2`}>{status.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {isRegistered && (
+          <button
+            onClick={onLogout}
+            className="profile-logout w-full py-3 border rounded-xl font-medium text-sm transition-colors"
+          >
+            {t.logoutAccount}
+          </button>
+        )}
+      </main>
+    </div>
+  );
+}

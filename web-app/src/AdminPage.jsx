@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, deleteDoc, getDocs, getDoc } from 'firebase/firestore';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2, Search, X, ArrowUp, BarChart3, Disc3, Music2, LogOut } from 'lucide-react';
+import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2, Search, X, ArrowUp, Disc3, Music2, LogOut } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
+import { useToast } from './Toast';
 
 export default function AdminPage() {
   const [email, setEmail] = useState('');
@@ -19,7 +20,7 @@ export default function AdminPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
   const [showScroll, setShowScroll] = useState(false);
-  const [showStats, setShowStats] = useState(false);
+  const toast = useToast();
 
   const t = translations[lang];
 
@@ -100,7 +101,7 @@ export default function AdminPage() {
     setLoginError('');
     try {
       await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
+    } catch {
       setLoginError(t.wrongCredentials);
     }
   };
@@ -113,7 +114,7 @@ export default function AdminPage() {
     try {
       await setDoc(doc(db, 'commands', 'forcePlay'), { filename: songId });
     } catch (error) {
-      alert("Error al forzar reproducción: " + error.message);
+      toast("Error al forzar reproducción: " + error.message, 'error');
     }
   };
 
@@ -121,7 +122,7 @@ export default function AdminPage() {
     try {
       await setDoc(doc(db, 'commands', 'skipCurrent'), { skip: true });
     } catch (error) {
-      alert("Error al saltar canción: " + error.message);
+      toast("Error al saltar canción: " + error.message, 'error');
     }
   };
 
@@ -131,7 +132,7 @@ export default function AdminPage() {
       try {
         await deleteDoc(doc(db, 'suggestions', id));
       } catch (error) {
-        alert("Error al borrar sugerencia: " + error.message);
+        toast("Error al borrar sugerencia: " + error.message, 'error');
       }
     }
   };
@@ -168,11 +169,11 @@ export default function AdminPage() {
         await setDoc(songRef, {
           title: song.title,
           votes: numVotes,
-          firstVotedAt: Date.now()
+          firstVotedAt: song.firstVotedAt || new Date().getTime()
         }, { merge: true });
       }
     } catch (error) {
-      alert("Error al actualizar votos: " + error.message);
+      toast("Error al actualizar votos: " + error.message, 'error');
     }
   };
 
@@ -184,7 +185,7 @@ export default function AdminPage() {
       );
       await updateDoc(catalogRef, { songs: updatedCatalog });
     } catch (error) {
-      alert("Error al ocultar/mostrar canción: " + error.message);
+      toast("Error al ocultar/mostrar canción: " + error.message, 'error');
     }
   };
 
@@ -325,13 +326,6 @@ export default function AdminPage() {
           <a href="/" className="p-2 -ml-2 text-zinc-400 hover:text-white transition-colors cursor-pointer" title={t.backToJukebox}>
             <ArrowLeft size={20} />
           </a>
-          <button
-            onClick={() => setShowStats(true)}
-            className="text-brand-gold hover:text-white transition-colors p-2"
-            title={t.statsTitle}
-          >
-            <BarChart3 size={24} />
-          </button>
           <div className="hidden sm:block">
             <h1 className="font-serif font-black text-xl text-brand-gold uppercase tracking-wider leading-none">Admin</h1>
             <span className="text-xs text-zinc-400 block mt-1">Jukebox Control Panel</span>
@@ -409,7 +403,7 @@ export default function AdminPage() {
               <span className="text-brand-gold/60 text-xs font-bold">{filteredQueue.length}</span>
             </div>
             <div className="max-h-[35vh] overflow-y-auto custom-scrollbar divide-y divide-zinc-800/50">
-              {filteredQueue.map((song, index) => {
+              {filteredQueue.map((song) => {
                 const originalIndex = nextInQueue.findIndex(s => s.id === song.id);
                 return (
                   <div key={`queue-${song.id}`} className="flex justify-between items-center bg-transparent p-3 hover:bg-white/5 transition-colors">
