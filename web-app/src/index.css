@@ -76,11 +76,22 @@ body {
   border-bottom: 1.5px solid var(--catrina-border);
 }
 
-[data-theme="catrina"] .jukebox-logo {
+/* Logo: el nombre del bar NUNCA se corta — escala con clamp según el ancho disponible */
+.jukebox-logo-title {
+  white-space: nowrap;
+  font-size: clamp(1.02rem, 4.6vw, 1.875rem);
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+}
+[data-theme="catrina"] .jukebox-logo-title {
   font-family: "Abril Fatface", serif;
-  @apply tracking-[0.15em];
+  letter-spacing: 0.05em;
 }
 
+.jukebox-logo-sub {
+  white-space: nowrap;
+  font-size: clamp(0.9rem, 4.2vw, 1.5rem);
+}
 [data-theme="catrina"] .jukebox-logo-sub {
   font-family: "Pinyon Script", cursive;
   color: var(--catrina-gold);

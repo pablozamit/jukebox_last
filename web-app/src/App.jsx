@@ -850,36 +850,36 @@ export default function App() {
 
       {/* ===== HEADER ===== */}
       <header className="jukebox-header">
-        <div className="max-w-lg mx-auto flex items-center justify-between gap-2">
+        <div className="max-w-lg mx-auto flex items-center justify-between gap-1 sm:gap-2">
           <button
             onClick={() => { if (isRegistered) setShowProfile(true); else { setAuthMode('login'); setShowLogin(true); } }}
-            className={`flex flex-col items-center justify-center gap-0.5 px-2 -ml-2 transition-colors ${isRegistered ? 'text-brand-gold' : isCatrina ? 'text-brand-gold/60 hover:text-brand-gold' : 'text-white/70 hover:text-brand-neon-purple'}`}
+            className={`shrink-0 flex flex-col items-center justify-center gap-0.5 px-1.5 sm:px-2 transition-colors ${isRegistered ? 'text-brand-gold' : isCatrina ? 'text-brand-gold/60 hover:text-brand-gold' : 'text-white/70 hover:text-brand-neon-purple'}`}
             title={isRegistered ? t.profileTitle : t.loginShort}
           >
             {isRegistered ? <Trophy size={22} /> : <LogIn size={22} />}
-            <span className="text-[9px] font-bold uppercase tracking-wider">
+            <span className={`text-[9px] font-bold uppercase tracking-wider hidden min-[380px]:block`}>
               {isRegistered ? t.profileShort : t.loginShort}
             </span>
           </button>
 
-          <button
-            onClick={() => setShowStats(true)}
-            className="text-brand-gold hover:text-white transition-colors p-2"
-            title={t.statsTitle}
-          >
-            <BarChart3 size={24} />
-          </button>
-
-          <div className="flex flex-col items-center text-center min-w-0">
-            <h1 className={`font-serif text-xl sm:text-3xl font-black text-brand-gold uppercase leading-tight truncate w-full ${isCatrina ? 'jukebox-logo' : 'tracking-widest'}`}>
+          <div className="flex-1 flex flex-col items-center text-center min-w-0 px-0.5">
+            <h1 className="jukebox-logo-title font-serif font-black uppercase text-brand-gold">
               La Catrina
             </h1>
-            <h2 className={`font-script text-lg sm:text-2xl text-brand-gold-dark -mt-1 sm:-mt-2 truncate w-full ${isCatrina ? 'jukebox-logo-sub' : ''}`}>
+            <h2 className="jukebox-logo-sub font-script text-brand-gold-dark -mt-1 sm:-mt-2">
               {t.subtitle}
             </h2>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-2">
+          <div className="shrink-0 flex items-center gap-1 sm:gap-2">
+            <button
+              onClick={() => setShowStats(true)}
+              className="text-brand-gold hover:text-white transition-colors p-1.5 sm:p-2"
+              title={t.statsTitle}
+            >
+              <BarChart3 size={22} />
+            </button>
+
             <button
               onClick={handleToggleTheme}
               disabled={themeSwitching}
@@ -896,16 +896,17 @@ export default function App() {
                 <div className="jukebox-theme-toggle-knob" />
               )}
             </button>
+
             <button
               onClick={() => setLang('es')}
-              className={`text-lg sm:text-xl transition-opacity ${lang === 'es' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
+              className={`text-sm sm:text-lg transition-opacity ${lang === 'es' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
               title="Español"
             >
               ESP
             </button>
             <button
               onClick={() => setLang('en')}
-              className={`text-lg sm:text-xl transition-opacity ${lang === 'en' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
+              className={`text-sm sm:text-lg transition-opacity ${lang === 'en' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
               title="English"
             >
               ENG
