@@ -1045,7 +1045,7 @@ export default function App() {
               </h2>
               <p className={`text-sm mt-2 ${isCatrina ? 'text-brand-gold/50' : 'text-zinc-400'}`}>{t.registerDesc}</p>
               {authMode === 'register' && (
-                <div className={`mt-4 text-left space-y-2 ${isCatrina ? 'relative z-[1]' : ''}`}>
+                <div className={`mt-4 text-left space-y-1.5 ${isCatrina ? 'relative z-[1]' : ''}`}>
                   {t.registerBenefits.map((b, i) => (
                     <div key={i} className={`flex items-start gap-2 text-xs leading-snug ${isCatrina ? 'text-brand-gold/60' : 'text-zinc-300'}`}>
                       <span className={`mt-0.5 shrink-0 font-bold ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-green'}`}>✓</span>

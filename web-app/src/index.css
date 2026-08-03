@@ -310,7 +310,9 @@ body {
 
 /* ===== MODALS ===== */
 .jukebox-modal-overlay {
-  @apply fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-sm;
+  @apply fixed inset-0 z-[100] flex p-4 bg-zinc-950/90 backdrop-blur-sm;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 [data-theme="catrina"] .jukebox-modal-overlay {
   background: rgba(8, 8, 8, 0.93);
@@ -320,6 +322,7 @@ body {
 .jukebox-modal {
   @apply bg-zinc-900 border border-brand-gold/30 rounded-3xl p-8 max-w-sm w-full relative;
   box-shadow: 0 0 50px rgba(255,204,0,0.1);
+  margin: auto;
 }
 [data-theme="catrina"] .jukebox-modal {
   background: linear-gradient(180deg, #1a1714 0%, #141210 100%);
