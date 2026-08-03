@@ -14,6 +14,10 @@ const StatsModal = lazy(() => import('./StatsModal'));
 
 gsap.registerPlugin(ScrollTrigger);
 
+// Canciones del catálogo visibles por bloque: renderizar las 1900+ a la vez
+// bloqueaba el hilo principal ~2s en cada cambio de tema.
+const CATALOG_PAGE_SIZE = 60;
+
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
@@ -58,6 +62,7 @@ export default function App() {
   const [showDesignSurvey, setShowDesignSurvey] = useState(false);
   const [surveySubmitted, setSurveySubmitted] = useState(false);
   const [catalogFilter, setCatalogFilter] = useState('all');
+  const [visibleCount, setVisibleCount] = useState(CATALOG_PAGE_SIZE);
   const [activityEvents, setActivityEvents] = useState([]);
   const [playedHistory, setPlayedHistory] = useState([]);
   const [nightlyTop, setNightlyTop] = useState(null);
@@ -622,6 +627,8 @@ export default function App() {
     })
     .sort((a, b) => a.title.localeCompare(b.title));
 
+  const visibleCatalog = filteredCatalog.slice(0, visibleCount);
+
   const calculateProgress = () => {
     if (!nowPlaying || !nowPlaying.totalTime || nowPlaying.totalTime === 0) return 0;
     return (nowPlaying.currentTime / nowPlaying.totalTime) * 100;
@@ -1017,12 +1024,12 @@ export default function App() {
               type="text"
               placeholder={t.searchPlaceholder}
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => { setSearchTerm(e.target.value); setVisibleCount(CATALOG_PAGE_SIZE); }}
               className={`w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-10 pr-10 text-white placeholder-zinc-500 focus:outline-none focus:ring-1 transition-all ${isCatrina ? 'jukebox-search' : 'focus:border-brand-neon-purple focus:ring-brand-neon-purple'}`}
             />
             {searchTerm && (
               <button
-                onClick={() => setSearchTerm('')}
+                onClick={() => { setSearchTerm(''); setVisibleCount(CATALOG_PAGE_SIZE); }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-400 p-1"
               >
                 <X size={20} />
@@ -1189,7 +1196,7 @@ export default function App() {
             ].map((f) => (
               <button
                 key={f.id}
-                onClick={() => setCatalogFilter(f.id)}
+                onClick={() => { setCatalogFilter(f.id); setVisibleCount(CATALOG_PAGE_SIZE); }}
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
                   catalogFilter === f.id
                     ? isCatrina ? 'bg-brand-gold/15 border-brand-gold/50 text-brand-gold' : 'bg-brand-neon-purple/15 border-brand-neon-purple/50 text-brand-neon-purple'
@@ -1269,7 +1276,7 @@ export default function App() {
             )
           ) : (
             <div>
-            {filteredCatalog.map((song) => {
+            {visibleCatalog.map((song) => {
               const isNowPlaying = nowPlaying?.title === song.title;
               const limitReached = userProposals.length >= MAX_PROPOSALS;
               const songCooldown = cooldowns[song.id];
@@ -1314,8 +1321,15 @@ export default function App() {
                   </button>
                 </div>
               );
-            })
-            }
+            })}
+            {visibleCount < filteredCatalog.length && (
+              <button
+                onClick={() => setVisibleCount(c => c + CATALOG_PAGE_SIZE)}
+                className={`w-full mt-2 py-3 rounded-xl border text-sm font-bold transition-all ${isCatrina ? 'border-brand-gold/25 text-brand-gold hover:bg-brand-gold/10' : 'border-zinc-800 text-zinc-400 hover:bg-zinc-900'}`}
+              >
+                {t.showMoreSongs.replace('{count}', filteredCatalog.length - visibleCount)}
+              </button>
+            )}
             </div>
           )}
         </section>
