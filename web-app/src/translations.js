@@ -128,6 +128,11 @@ export const translations = {
     surveySkip: "No quiero opinar",
     surveyThanks: "¡Gracias por tu opinión!",
     surveyThanksDesc: "Tu feedback nos ayuda a mejorar.",
+
+    // Notificaciones en tiempo real
+    notifVotedOnYourSong: "🎸 ¡Alguien ha votado tu canción '{title}'! ({votes} votos)",
+    notifTokenBack: "🎉 ¡'{title}' ha sonado! Has recuperado tu voto.",
+    notifYourSongNext: "🎤 ¡Atención! Tu canción '{title}' va a sonar la siguiente (a no ser que alguien vote más).",
     loginSuccess: "¡Bienvenido de vuelta!",
     loginDesc: "Inicia sesión para recuperar tu perfil DJ: votos, propuestas, puntos y logros.",
     forgotPassword: "¿Olvidaste tu contraseña?",
@@ -341,6 +346,11 @@ export const translations = {
     surveySkip: "I'd rather not say",
     surveyThanks: "Thanks for your feedback!",
     surveyThanksDesc: "Your feedback helps us improve.",
+
+    // Real-time notifications
+    notifVotedOnYourSong: "🎸 Someone voted for your song '{title}'! ({votes} votes)",
+    notifTokenBack: "🎉 '{title}' just played! You got your vote back.",
+    notifYourSongNext: "🎤 Heads up! Your song '{title}' is playing next (unless someone outvotes it).",
     loginSuccess: "Welcome back!",
     loginDesc: "Log in to recover your DJ profile: votes, proposals, points and achievements.",
     forgotPassword: "Forgot your password?",

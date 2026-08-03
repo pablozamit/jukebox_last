@@ -64,6 +64,12 @@ export default function App() {
   const voteButtonRefs = useRef(new Map());
   const voteCountRefs = useRef(new Map());
   const [lastVotedSongId, setLastVotedSongId] = useState(null);
+  const lastVoteCountsRef = useRef({});
+  const ownVoteRef = useRef(null);
+  const lastVotesOrProposalsRef = useRef(null);
+  const lastManualRemoveRef = useRef(null);
+  const prevAchievementsRef = useRef(null);
+  const nextSongNotifiedRef = useRef(null);
 
   const t = translations[lang];
 
@@ -270,6 +276,8 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [lastVotedSongId]);
 
+
+
   useEffect(() => {
     const answered = localStorage.getItem('design-survey-answered');
     if (theme === 'neon' && prevThemeRef.current === 'catrina' && !answered) {
@@ -344,6 +352,7 @@ export default function App() {
         }
       }
       if (removed) {
+        lastManualRemoveRef.current = { songId, at: new Date().getTime() };
         const currentVotes = activeQueue[songId]?.votes || 0;
         const songRef = doc(db, 'songs', songId);
         if (currentVotes <= 1) {
@@ -408,6 +417,8 @@ export default function App() {
       ]);
       setLastVotedSongId(song.id);
       animateVote(song.id);
+      ownVoteRef.current = { songId: song.id, at: new Date().getTime() };
+      lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
     } catch (error) {
       toast(t.firebaseError + error.message, 'error');
     }
@@ -563,6 +574,85 @@ export default function App() {
     const isMorningOpen = (day >= 2 || day === 0) && time <= 1.5;
     return isEveningOpen || isMorningOpen;
   };
+
+  // === Notificaciones en tiempo real ===
+  useEffect(() => {
+    if (!userId) return;
+    const now = new Date().getTime();
+    Object.entries(activeQueue).forEach(([songId, song]) => {
+      if (!userProposals.includes(songId)) return;
+      const prev = lastVoteCountsRef.current[songId];
+      if (prev === undefined) {
+        lastVoteCountsRef.current[songId] = song.votes;
+        return;
+      }
+      const ownVote = ownVoteRef.current;
+      const isOwnVote = ownVote && ownVote.songId === songId && (now - ownVote.at < 3000);
+      if (song.votes === prev + 1 && song.votes >= 2 && !isOwnVote) {
+        toast(t.notifVotedOnYourSong.replace('{title}', song.title).replace('{votes}', song.votes), 'info', 4500);
+      }
+      lastVoteCountsRef.current[songId] = song.votes;
+    });
+  }, [activeQueue, userProposals, userId, t, toast]);
+
+  useEffect(() => {
+    if (!userId || !userData) return;
+    const curProposals = userData.proposals || [];
+    const curVotes = userData.votes || [];
+    const prevState = lastVotesOrProposalsRef.current;
+    if (!prevState) {
+      lastVotesOrProposalsRef.current = { proposals: curProposals, votes: curVotes };
+      return;
+    }
+    const now = new Date().getTime();
+    const lost = [
+      ...prevState.proposals.filter(id => !curProposals.includes(id)),
+      ...prevState.votes.filter(id => !curVotes.includes(id)),
+    ];
+    lost.forEach((songId) => {
+      const manual = lastManualRemoveRef.current;
+      if (manual && manual.songId === songId && (now - manual.at < 3000)) return;
+      const title = activeQueue[songId]?.title || catalog.find(s => s.id === songId)?.title || songId;
+      toast(t.notifTokenBack.replace('{title}', title), 'success', 4500);
+    });
+    lastVotesOrProposalsRef.current = { proposals: curProposals, votes: curVotes };
+  }, [userData, userId, activeQueue, catalog, t, toast]);
+
+  useEffect(() => {
+    const cur = userData?.achievements;
+    if (!cur) return;
+    const achievementTitles = {
+      first_vote: t.achievementFirstVote,
+      protagonist: t.achievementProtagonist,
+      hitmaker: t.achievementHitmaker,
+      influencer: t.achievementInfluencer,
+      streak: t.achievementStreak,
+      loyal: t.achievementLoyal,
+      early_bird: t.achievementEarlyBird,
+      night_owl: t.achievementNightOwl,
+    };
+    const prev = prevAchievementsRef.current;
+    if (prev !== null) {
+      cur.filter(id => !prev.includes(id)).forEach((id) => {
+        const title = achievementTitles[id];
+        if (title) toast(`🏆 ${t.achievementUnlocked}: ${title}`, 'success', 4500);
+      });
+    }
+    prevAchievementsRef.current = cur;
+  }, [userData, t, toast]);
+
+  useEffect(() => {
+    if (!userId || queueSongs.length === 0) return;
+    const top = queueSongs[0];
+    if (!userProposals.includes(top.id) || nowPlaying?.title === top.title) {
+      nextSongNotifiedRef.current = null;
+      return;
+    }
+    if (nextSongNotifiedRef.current !== top.id) {
+      nextSongNotifiedRef.current = top.id;
+      toast(t.notifYourSongNext.replace('{title}', top.title), 'info', 6000);
+    }
+  }, [queueSongs, userProposals, userId, nowPlaying, t, toast]);
 
   const isCatrina = theme === 'catrina';
   const baseBgClass = isCatrina ? 'bg-[#0f0d0a]' : 'bg-zinc-950';
