@@ -39,11 +39,23 @@ python set_admin.py admin@lacatrina.com
 
 Esto añade el UID del usuario a la colección `admins` de Firestore. Solo necesita hacerse **una vez**.
 
-### Desplegar las reglas de seguridad
+### Reglas de seguridad (ya desplegadas)
 
-1. En Firebase Console, ve a **Firestore Database > Rules**.
-2. Copia el contenido de `security-rules.txt` de tu proyecto.
-3. Pégalo en el editor y haz clic en **Publish**.
+Las reglas de seguridad están **desplegadas y verificadas** (34/34 pruebas). El archivo canónico es `firestore.rules` (y `security-rules.txt`, idéntico, para pegado manual).
+
+Si algún día necesitas actualizarlas:
+
+```cmd
+python deploy_rules.py
+```
+
+Y verifica que todo sigue funcionando con:
+
+```cmd
+python test_security_rules.py
+```
+
+También puedes pegarlas a mano en **Firestore Database > Rules** de la consola de Firebase. Si algo fallara tras un cambio, vuelve atrás con `python deploy_rules.py --rollback-to <ruleset_anterior>`.
 
 ---
 

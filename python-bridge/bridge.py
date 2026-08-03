@@ -252,6 +252,29 @@ async def progress_tracker(ws, current_playing_file):
         # Frecuencia reducida a 5 segundos (Plan Blaze)
         await asyncio.sleep(5)
 
+async def active_users_writer():
+    """Escribe cada 15s el número de usuarios con canciones activas en la cola.
+    Así la web lee state/active_users y no necesita leer toda la colección
+    'users' (necesario para endurecer las reglas de seguridad)."""
+    while True:
+        try:
+            queue_keys = set()
+            for song in db.collection('songs').stream():
+                queue_keys.add(song.id)
+            count = 0
+            if queue_keys:
+                for user in db.collection('users').stream():
+                    d = user.to_dict()
+                    if queue_keys.intersection(d.get('proposals') or []) or queue_keys.intersection(d.get('votes') or []):
+                        count += 1
+            db.collection('state').document('active_users').set({
+                'count': count,
+                'updatedAt': int(time.time() * 1000)
+            })
+        except Exception as e:
+            print(f" Error contador usuarios activos: {e}")
+        await asyncio.sleep(15)
+
 async def session_watchdog():
     """Comprueba cada 60s si toca iniciar una nueva jornada (reset a las 2:00).
     Evita que los contadores de 'hoy' se queden con datos del día anterior si
@@ -276,6 +299,7 @@ async def main():
         asyncio.create_task(progress_tracker(ws, current_playing_file))
         asyncio.create_task(admin_commands_listener(ws, local_filenames, current_playing_file))
         asyncio.create_task(session_watchdog())
+        asyncio.create_task(active_users_writer())
         await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetActivePlayers", "id": "check_active"}))
 
         while True:

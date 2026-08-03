@@ -19,6 +19,7 @@ GoogleService-Info.plist
 !composer.json
 !.github/workflows/*.json
 !vercel.json
+!firebase.json
 
 # Python
 __pycache__/

@@ -40,8 +40,7 @@ export default function App() {
   const [suggestYoutubeUrl, setSuggestYoutubeUrl] = useState('');
   const [showStats, setShowStats] = useState(false);
   const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
-  const [allUsers, setAllUsers] = useState([]);
-
+  const [activeUsersCount, setActiveUsersCount] = useState(0);
 
   const [userData, setUserData] = useState(null);
   const [isRegistered, setIsRegistered] = useState(false);
@@ -202,11 +201,12 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Usuarios activos: lo calcula y escribe el bridge en state/active_users.
+  // Así la app no necesita leer toda la colección 'users' (las reglas de seguridad solo permiten leer tu propio doc).
   useEffect(() => {
-    const usersRef = collection(db, 'users');
-    const unsubscribe = onSnapshot(usersRef, (snapshot) => {
-      const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setAllUsers(usersList);
+    const activeRef = doc(db, 'state', 'active_users');
+    const unsubscribe = onSnapshot(activeRef, (docSnap) => {
+      setActiveUsersCount(docSnap.exists() ? (docSnap.data().count || 0) : 0);
     });
     return () => unsubscribe();
   }, []);
@@ -633,10 +633,6 @@ export default function App() {
     return `${m}:${s}`;
   };
 
-  const queueKeys = Object.keys(activeQueue);
-  const activeUsersCount = allUsers.filter(user =>
-    (user.proposals || []).some(id => queueKeys.includes(id)) || (user.votes || []).some(id => queueKeys.includes(id))
-  ).length;
   const isBridgeActive = nowPlaying?.lastActive ? (currentTimestamp - nowPlaying.lastActive < 300000) : false;
 
   const checkIsStaffHours = () => {
