@@ -217,6 +217,17 @@ async def progress_tracker(ws, current_playing_file):
         # Frecuencia reducida a 5 segundos (Plan Blaze)
         await asyncio.sleep(5)
 
+async def session_watchdog():
+    """Comprueba cada 60s si toca iniciar una nueva jornada (reset a las 2:00).
+    Evita que los contadores de 'hoy' se queden con datos del día anterior si
+    el PC del bar sigue encendido con el bridge corriendo."""
+    while True:
+        try:
+            await check_for_new_session()
+        except Exception as e:
+            print(f" Error watchdog: {e}")
+        await asyncio.sleep(60)
+
 async def main():
     local_filenames = sync_local_files()
     
@@ -229,6 +240,7 @@ async def main():
         current_playing_file = [None]
         asyncio.create_task(progress_tracker(ws, current_playing_file))
         asyncio.create_task(admin_commands_listener(ws, local_filenames, current_playing_file))
+        asyncio.create_task(session_watchdog())
         await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetActivePlayers", "id": "check_active"}))
 
         while True:

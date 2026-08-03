@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, UserPlus, Loader2 } from 'lucide-react';
+import { Search, Flame, LogIn, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, Loader2 } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
 import { useTheme } from './ThemeContext';
@@ -474,6 +474,7 @@ export default function App() {
         djName: djNameClean.slice(0, 20),
       }, { merge: true });
       setShowRegister(false);
+      setShowLogin(false);
       setIsRegistered(true);
       toast(t.registerSuccess, 'success');
     } catch (error) {
@@ -492,6 +493,7 @@ export default function App() {
     try {
       await signInWithEmailAndPassword(auth, regEmail, regPassword);
       setShowLogin(false);
+      setShowRegister(false);
       setIsRegistered(true);
       toast(t.loginSuccess, 'success');
     } catch {
@@ -760,13 +762,13 @@ export default function App() {
       <header className="jukebox-header">
         <div className="max-w-lg mx-auto flex items-center justify-between gap-2">
           <button
-            onClick={() => { if (isRegistered) setShowProfile(true); else { setAuthMode('register'); setShowRegister(true); } }}
+            onClick={() => { if (isRegistered) setShowProfile(true); else { setAuthMode('login'); setShowLogin(true); } }}
             className={`flex flex-col items-center justify-center gap-0.5 px-2 -ml-2 transition-colors ${isRegistered ? 'text-brand-gold' : isCatrina ? 'text-brand-gold/60 hover:text-brand-gold' : 'text-white/70 hover:text-brand-neon-purple'}`}
-            title={isRegistered ? t.profileTitle : t.registerCta}
+            title={isRegistered ? t.profileTitle : t.loginShort}
           >
-            {isRegistered ? <Trophy size={22} /> : <UserPlus size={22} />}
+            {isRegistered ? <Trophy size={22} /> : <LogIn size={22} />}
             <span className="text-[9px] font-bold uppercase tracking-wider">
-              {isRegistered ? t.profileShort : t.registerCta}
+              {isRegistered ? t.profileShort : t.loginShort}
             </span>
           </button>
 
@@ -1415,14 +1417,34 @@ function StatsModal({ onClose, t, catalog, isCatrina, mainTextClass }) {
         }
         const results = await Promise.all(baseDocs.map(id => getDoc(doc(statsRef, id))));
         const newData = { plays: {}, votes: {}, time: {}, playsTotal: {}, votesTotal: {} };
+
+        // Frescura de los contadores 'hoy'/'semana': el bridge los reinicia al abrir
+        // el bar. Si no ha habido actividad en la sesión actual, son de un día
+        // anterior (p. ej. al consultar un lunes estando cerrados).
+        let lastActive = 0;
+        try {
+          const npSnap = await getDoc(doc(db, 'state', 'nowPlaying'));
+          lastActive = npSnap.data()?.lastActive || 0;
+        } catch { /* sin conexión o sin doc */ }
+        const boundary = new Date();
+        boundary.setHours(2, 0, 0, 0);
+        if (Date.now() < boundary.getTime()) boundary.setDate(boundary.getDate() - 1);
+        const monday = new Date();
+        monday.setHours(2, 0, 0, 0);
+        monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+
         results.forEach((docSnap, index) => {
           if (docSnap.exists()) {
             const id = baseDocs[index];
-            if (id === `plays_${range}`) newData.plays = docSnap.data();
-            else if (id === `votes_${range}`) newData.votes = docSnap.data();
-            else if (id === `time_${range}`) newData.time = docSnap.data();
-            else if (id === 'plays_total') newData.playsTotal = docSnap.data();
-            else if (id === 'votes_total') newData.votesTotal = docSnap.data();
+            const data = docSnap.data();
+            const stale = (range === 'hoy' && lastActive < boundary.getTime())
+                       || (range === 'semana' && lastActive < monday.getTime());
+            if (stale) return;
+            if (id === `plays_${range}`) newData.plays = data;
+            else if (id === `votes_${range}`) newData.votes = data;
+            else if (id === `time_${range}`) newData.time = data;
+            else if (id === 'plays_total') newData.playsTotal = data;
+            else if (id === 'votes_total') newData.votesTotal = data;
           }
         });
         if (range === 'total' || range === 'cost') {
