@@ -592,8 +592,8 @@ export default function App() {
               onClick={handleToggleTheme}
               disabled={themeSwitching}
               className="jukebox-theme-toggle"
-              title={isCatrina ? t.themeNeon : t.themeClassic}
-              aria-label={isCatrina ? t.themeNeon : t.themeClassic}
+              title={isCatrina ? t.themeClassic : t.themeNeon}
+              aria-label={isCatrina ? t.themeClassic : t.themeNeon}
               aria-busy={themeSwitching}
             >
               <span className="jukebox-theme-toggle-label jukebox-theme-toggle-label-c">C</span>
@@ -609,14 +609,14 @@ export default function App() {
               className={`text-lg sm:text-xl transition-opacity ${lang === 'es' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
               title="Español"
             >
-              ES
+              ESP
             </button>
             <button
               onClick={() => setLang('en')}
               className={`text-lg sm:text-xl transition-opacity ${lang === 'en' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
               title="English"
             >
-              US
+              ENG
             </button>
           </div>
         </div>

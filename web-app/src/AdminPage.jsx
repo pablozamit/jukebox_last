@@ -207,13 +207,13 @@ export default function AdminPage() {
             onClick={() => setLang('es')}
             className={`text-xl transition-opacity ${lang === 'es' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
           >
-            🇪🇸
+            ESP
           </button>
           <button
             onClick={() => setLang('en')}
             className={`text-xl transition-opacity ${lang === 'en' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
           >
-            🇺🇸
+            ENG
           </button>
         </div>
         <a href="/" className="absolute top-6 left-6 sm:top-8 sm:left-8 flex items-center gap-2 text-zinc-500 hover:text-white transition-colors">
@@ -338,13 +338,13 @@ export default function AdminPage() {
               onClick={() => setLang('es')}
               className={`text-lg sm:text-xl transition-opacity ${lang === 'es' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
             >
-              🇪🇸
+              ESP
             </button>
             <button
               onClick={() => setLang('en')}
               className={`text-lg sm:text-xl transition-opacity ${lang === 'en' ? 'opacity-100 border-b-2 border-brand-gold' : 'opacity-40'}`}
             >
-              🇺🇸
+              ENG
             </button>
           </div>
           <div className="flex items-center gap-2">
