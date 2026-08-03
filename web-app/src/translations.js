@@ -156,6 +156,15 @@ export const translations = {
     lastCallTitle: "¡Última llamada!",
     lastCallDesc: "Quedan menos de 30 minutos. ¡Vota tu última canción!",
     djOfNight: "DJ de la noche",
+
+    // Trivia (juego estilo Kahoot)
+    triviaGiftTitle: "Trivia: canción extra",
+    triviaQuestion: "¿De qué banda o artista es la canción '{song}'?",
+    triviaReward: "Acierta y ganas: +1 propuesta de canción y +2 votos extra",
+    triviaWin: "🎉 ¡Correcto! +1 propuesta y +2 votos extra",
+    triviaLose: "❌ Incorrecto. La respuesta era '{answer}'",
+    triviaBonusLine: "🎁 +{p} propuesta y +{v} votos extra de la trivia",
+    freeProposalsLabel: "Propuestas gratis",
     loginSuccess: "¡Bienvenido de vuelta!",
     loginDesc: "Inicia sesión para recuperar tu perfil DJ: votos, propuestas, puntos y logros.",
     forgotPassword: "¿Olvidaste tu contraseña?",
@@ -401,6 +410,15 @@ export const translations = {
     lastCallTitle: "Last call!",
     lastCallDesc: "Less than 30 minutes left. Vote your last song!",
     djOfNight: "DJ of the night",
+
+    // Trivia (Kahoot-style game)
+    triviaGiftTitle: "Trivia: extra song",
+    triviaQuestion: "Which band or artist is the song '{song}' from?",
+    triviaReward: "Answer right and win: +1 song proposal and +2 extra votes",
+    triviaWin: "🎉 Correct! +1 proposal and +2 extra votes",
+    triviaLose: "❌ Wrong. The answer was '{answer}'",
+    triviaBonusLine: "🎁 +{p} proposal and +{v} extra votes from trivia",
+    freeProposalsLabel: "Free proposals",
     loginSuccess: "Welcome back!",
     loginDesc: "Log in to recover your DJ profile: votes, proposals, points and achievements.",
     forgotPassword: "Forgot your password?",

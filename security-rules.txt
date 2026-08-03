@@ -51,9 +51,10 @@ service cloud.firestore {
       allow create: if request.auth != null && request.auth.uid == userId
                     && request.resource.data.keys().hasOnly(['proposals', 'votes']);
 
-      // Actualización: solo campos controlados (votos, registro, DJ name, puntos, favoritos).
+      // Actualización: solo campos controlados (votos, registro, DJ name, puntos, favoritos,
+      // bonificaciones de trivia y marca de última ronda jugada).
       allow update: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'freeVotes', 'isRegistered', 'email', 'djName', 'points', 'favorites']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'freeVotes', 'freeProposals', 'lastTriviaAt', 'isRegistered', 'email', 'djName', 'points', 'favorites']);
     }
 
     // ============ 5. commands — Solo admins (regla global) ============

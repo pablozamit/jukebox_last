@@ -134,6 +134,12 @@ def main():
     check("guardar djName + registro + email", [200],
           api(f"{BASE}/users/{uid}?updateMask.fieldPaths=djName&updateMask.fieldPaths=isRegistered&updateMask.fieldPaths=email", "PATCH",
               {"fields": fields({"djName": "DJ Selftest", "isRegistered": True, "email": EMAIL})}, token)[0])
+    check("guardar bonificacion trivia (freeProposals+freeVotes+lastTriviaAt)", [200],
+          api(f"{BASE}/users/{uid}?updateMask.fieldPaths=freeProposals&updateMask.fieldPaths=freeVotes&updateMask.fieldPaths=lastTriviaAt", "PATCH",
+              {"fields": fields({"freeProposals": 1, "freeVotes": 2, "lastTriviaAt": 1750000000000})}, token)[0])
+    check("guardar campo hackeado en mi doc", [403],
+          api(f"{BASE}/users/{uid}?updateMask.fieldPaths=freeProposals&updateMask.fieldPaths=hacked", "PATCH",
+              {"fields": fields({"freeProposals": 1, "hacked": "si"})}, token)[0])
     check("escribir en doc de OTRO usuario", [403],
           api(f"{BASE}/users/otro_usuario?updateMask.fieldPaths=votes", "PATCH",
               {"fields": fields({"votes": ["x"]})}, token)[0])

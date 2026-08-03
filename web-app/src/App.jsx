@@ -7,6 +7,7 @@ import { translations } from './translations';
 import { useTheme } from './ThemeContext';
 import { useToast } from './Toast';
 import { CornerFlourish, OrnamentalDivider, SectionHeader, TextureOverlay } from './Ornaments';
+import TriviaGift from './TriviaGift';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 const Profile = lazy(() => import('./Profile'));
@@ -108,7 +109,7 @@ export default function App() {
       .catch((error) => toast(t.firebaseError + error.message, 'error'));
   };
 
-  const MAX_PROPOSALS = isRegistered ? 6 : 3;
+  const MAX_PROPOSALS = (isRegistered ? 6 : 3) + (userData?.freeProposals || 0);
   const MAX_VOTES = (isRegistered ? 10 : 5) + (userData?.freeVotes || 0);
 
   useEffect(() => {
@@ -1019,6 +1020,12 @@ export default function App() {
             </div>
           </div>
 
+          {(userData?.freeProposals || 0) > 0 && (
+            <p className={`text-[10px] font-bold ${isCatrina ? 'text-brand-gold/50' : 'text-brand-neon-purple/60'}`}>
+              {t.triviaBonusLine.replace('{p}', userData.freeProposals).replace('{v}', userData.freeVotes || 0)}
+            </p>
+          )}
+
           <div className="relative">
             <Search className="jukebox-search-icon" size={20} />
             <input
@@ -1335,6 +1342,9 @@ export default function App() {
           )}
         </section>
       </main>
+
+      {/* ===== TRIVIA: regalo 3D cada 30 min ===== */}
+      <TriviaGift userId={userId} t={t} lastTriviaAt={userData?.lastTriviaAt || null} />
 
       {/* ===== HELP MODAL ===== */}
       {showHelp && (

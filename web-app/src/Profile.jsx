@@ -43,6 +43,7 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
   const totalEarned = userData.totalPointsEarned || 0;
   const currentPoints = userData.points || 0;
   const freeVotes = userData.freeVotes || 0;
+  const freeProposals = userData.freeProposals || 0;
   const achievements = userData.achievements || [];
   const history = userData.history || [];
   const visitDates = userData.visitDates || [];
@@ -209,6 +210,11 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
             <span>
               <span className="profile-free-votes font-bold">{freeVotes}</span> {t.freeVotesLabel}
             </span>
+            {freeProposals > 0 && (
+              <span>
+                <span className="profile-free-proposals font-bold">{freeProposals}</span> {t.freeProposalsLabel}
+              </span>
+            )}
           </div>
 
           <button
