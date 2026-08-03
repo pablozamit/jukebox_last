@@ -34,6 +34,9 @@ export default function Profile({ userData, userId, t, onClose, onLogout }) {
   const [historyFilter, setHistoryFilter] = useState('all');
   const [exchanging, setExchanging] = useState(false);
   const [exchangeMsg, setExchangeMsg] = useState('');
+  const [djNameDraft, setDjNameDraft] = useState(userData?.djName || '');
+  const [editingDjName, setEditingDjName] = useState(false);
+  const [djMsg, setDjMsg] = useState('');
 
   if (!userData) return null;
 
@@ -81,6 +84,22 @@ export default function Profile({ userData, userId, t, onClose, onLogout }) {
     setExchanging(false);
   };
 
+  const handleSaveDjName = async () => {
+    const clean = djNameDraft.trim();
+    if (!clean) {
+      setDjMsg(t.djNameEmpty);
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'users', userId), { djName: clean.slice(0, 20) });
+      setEditingDjName(false);
+      setDjMsg(t.djNameSaved);
+      setTimeout(() => setDjMsg(''), 2500);
+    } catch {
+      setDjMsg(t.authErrorGeneric);
+    }
+  };
+
   const statusLabels = {
     played: { label: t.historyPlayed },
     in_queue: { label: t.historyInQueue },
@@ -106,6 +125,38 @@ export default function Profile({ userData, userId, t, onClose, onLogout }) {
             <CornerFlourish position="br" size={34} />
           </>}
           <div className={isCatrina ? 'relative z-[1]' : ''}>
+          {isRegistered && (
+            <div className="flex items-center justify-center gap-2 pb-3 mb-3 border-b border-brand-gold/20">
+              {editingDjName ? (
+                <form
+                  onSubmit={(e) => { e.preventDefault(); handleSaveDjName(); }}
+                  className="flex items-center gap-2 w-full max-w-[260px]"
+                >
+                  <input
+                    type="text"
+                    value={djNameDraft}
+                    onChange={(e) => setDjNameDraft(e.target.value)}
+                    maxLength={20}
+                    placeholder={t.registerDjName}
+                    className="flex-1 min-w-0 bg-transparent border border-brand-gold/40 rounded-lg px-3 py-1.5 text-sm text-center focus:outline-none"
+                  />
+                  <button type="submit" className="shrink-0 text-xs font-bold text-brand-gold">{t.saveDjName}</button>
+                </form>
+              ) : (
+                <button
+                  onClick={() => { setDjNameDraft(userData.djName || ''); setEditingDjName(true); }}
+                  className="flex items-center gap-2 transition-opacity hover:opacity-70"
+                >
+                  <span className="text-lg">🎤</span>
+                  <span className="text-lg font-bold">{userData.djName || t.anonymous}</span>
+                  <span className="text-[10px] uppercase tracking-wider opacity-60 underline">{t.editDjName}</span>
+                </button>
+              )}
+            </div>
+          )}
+          {djMsg && (
+            <p className="text-xs text-brand-gold pb-2 -mt-1">{djMsg}</p>
+          )}
           <div className="flex items-center justify-center gap-2">
             <span className="text-4xl">{currentLevel.icon}</span>
             <div className="text-left">

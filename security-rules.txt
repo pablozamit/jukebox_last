@@ -25,7 +25,7 @@ service cloud.firestore {
       // b) Solo se está modificando 'votes' y 'firstVotedAt'.
       // c) El incremento es +1 (votar) o -1 (retirar voto).
       allow update: if request.auth != null 
-                    && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'firstVotedAt']))
+                    && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'firstVotedAt', 'lastVoterName', 'proposerName']))
                     && (request.resource.data.votes == resource.data.votes + 1
                         || request.resource.data.votes == resource.data.votes - 1);
                     
@@ -56,9 +56,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow create: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.keys().hasOnly(['proposals', 'votes']);
+                    && request.resource.data.keys().hasOnly(['proposals', 'votes', 'djName']);
       allow update: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'freeVotes', 'isRegistered', 'email']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'freeVotes', 'isRegistered', 'email', 'djName', 'points']);
     }
 
     // 5. Comandos (commands)

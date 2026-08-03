@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
 import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, UserPlus, Loader2 } from 'lucide-react';
 import { db, auth } from './firebase';
@@ -48,6 +48,7 @@ export default function App() {
   const [playingBannerData, setPlayingBannerData] = useState(null);
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
+  const [regDjName, setRegDjName] = useState('');
   const [authErrorMsg, setAuthErrorMsg] = useState('');
   const [authMode, setAuthMode] = useState('register');
   const [showDesignSurvey, setShowDesignSurvey] = useState(false);
@@ -70,8 +71,13 @@ export default function App() {
   const lastManualRemoveRef = useRef(null);
   const prevAchievementsRef = useRef(null);
   const nextSongNotifiedRef = useRef(null);
+  const lastEventTsRef = useRef(0);
+  const voteNotifiedRef = useRef({});
+  const userProposalsRef = useRef([]);
+  const activeQueueRef = useRef({});
 
   const t = translations[lang];
+  const djDisplayName = (userData?.djName && userData.djName.trim()) ? userData.djName.trim() : t.anonymous;
 
   const MAX_PROPOSALS = isRegistered ? 6 : 3;
   const MAX_VOTES = (isRegistered ? 10 : 5) + (userData?.freeVotes || 0);
@@ -388,6 +394,25 @@ export default function App() {
     // Registro optimista: evita notificarte a ti mismo tu propio voto
     ownVoteRef.current = { songId: song.id, at: new Date().getTime() };
     lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
+    // Evento público de voto: permite notificar al proponente con tu nombre de DJ
+    addDoc(collection(db, 'statistics'), {
+      kind: 'vote_event',
+      songId: song.id,
+      voterName: djDisplayName,
+      ts: new Date().getTime(),
+    })
+      .then(() => {
+        // Limpieza best-effort: borra eventos viejos de esta canción (más de 2h)
+        const cutoff = new Date().getTime() - 2 * 60 * 60 * 1000;
+        getDocs(query(collection(db, 'statistics'), where('songId', '==', song.id)))
+          .then((snap) => {
+            snap.docs
+              .filter(d => d.data().kind === 'vote_event' && (d.data().ts || 0) < cutoff)
+              .forEach(d => deleteDoc(d.ref));
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
     try {
       const userRef = doc(db, 'users', userId);
       if (isProposal) {
@@ -400,7 +425,8 @@ export default function App() {
       await setDoc(songRef, {
         title: song.title,
         votes: increment(1),
-        firstVotedAt: isProposal ? votedAt : (activeQueue[song.id]?.firstVotedAt || votedAt)
+        firstVotedAt: isProposal ? votedAt : (activeQueue[song.id]?.firstVotedAt || votedAt),
+        ...(isProposal ? { proposerName: djDisplayName } : {})
       }, { merge: true });
       const now = new Date();
       let hour = now.getHours();
@@ -429,6 +455,11 @@ export default function App() {
   const handleRegister = async (e) => {
     e.preventDefault();
     setAuthErrorMsg('');
+    const djNameClean = regDjName.trim();
+    if (!djNameClean) {
+      setAuthErrorMsg(t.djNameEmpty);
+      return;
+    }
     try {
       let currentUser = auth.currentUser;
       if (!currentUser) {
@@ -440,6 +471,7 @@ export default function App() {
       await setDoc(doc(db, 'users', auth.currentUser.uid), {
         isRegistered: true,
         email: regEmail,
+        djName: djNameClean.slice(0, 20),
       }, { merge: true });
       setShowRegister(false);
       setIsRegistered(true);
@@ -535,7 +567,8 @@ export default function App() {
     .map(song => ({
       ...song,
       votes: activeQueue[song.id]?.votes || 0,
-      firstVotedAt: activeQueue[song.id]?.firstVotedAt || null
+      firstVotedAt: activeQueue[song.id]?.firstVotedAt || null,
+      proposerName: activeQueue[song.id]?.proposerName || null
     }))
     .filter(song => song.available !== false);
 
@@ -585,8 +618,44 @@ export default function App() {
     nextSongNotifiedRef.current = null;
     ownVoteRef.current = null;
     lastManualRemoveRef.current = null;
+    lastEventTsRef.current = 0;
+    voteNotifiedRef.current = {};
+    userProposalsRef.current = [];
+    activeQueueRef.current = {};
   }, [userId]);
 
+  useEffect(() => {
+    userProposalsRef.current = userProposals;
+  }, [userProposals]);
+
+  useEffect(() => {
+    activeQueueRef.current = activeQueue;
+  }, [activeQueue]);
+
+  // Listener principal: el evento de voto (que viaja con el nombre del DJ) dispara la notificación
+  useEffect(() => {
+    if (!userId) return;
+    lastEventTsRef.current = new Date().getTime();
+    const statsRef = collection(db, 'statistics');
+    const unsubscribe = onSnapshot(statsRef, (snapshot) => {
+      snapshot.docs.forEach((doc) => {
+        const ev = doc.data();
+        if (!ev || ev.kind !== 'vote_event' || !(ev.ts > lastEventTsRef.current)) return;
+        if (!userProposalsRef.current.includes(ev.songId)) return;
+        const song = activeQueueRef.current[ev.songId];
+        const ownVote = ownVoteRef.current;
+        const isOwnVote = ownVote && ownVote.songId === ev.songId && (Date.now() - ownVote.at < 3000);
+        if (!song || song.votes < 2 || isOwnVote) return;
+        if (voteNotifiedRef.current[ev.songId] === song.votes) return;
+        voteNotifiedRef.current[ev.songId] = song.votes;
+        const name = ev.voterName || t.anonymous;
+        toast(t.notifVotedOnYourSong.replace('{name}', name).replace('{title}', song.title).replace('{votes}', song.votes), 'info', 4500);
+      });
+    });
+    return unsubscribe;
+  }, [userId, t, toast]);
+
+  // Fallback: si el evento no llegó, la detección por delta en la cola avisa igualmente
   useEffect(() => {
     if (!userId) return;
     const now = Date.now();
@@ -600,7 +669,10 @@ export default function App() {
       const ownVote = ownVoteRef.current;
       const isOwnVote = ownVote && ownVote.songId === songId && (now - ownVote.at < 3000);
       if (song.votes > prev && song.votes >= 2 && !isOwnVote) {
-        toast(t.notifVotedOnYourSong.replace('{title}', song.title).replace('{votes}', song.votes), 'info', 4500);
+        if (voteNotifiedRef.current[songId] !== song.votes) {
+          voteNotifiedRef.current[songId] = song.votes;
+          toast(t.notifVotedOnYourSong.replace('{name}', t.someone).replace('{title}', song.title).replace('{votes}', song.votes), 'info', 4500);
+        }
       }
       lastVoteCountsRef.current[songId] = song.votes;
     });
@@ -906,6 +978,11 @@ export default function App() {
                               {song.votes} {song.votes === 1 ? t.vote : t.votes}
                             </span>
                           </div>
+                          {song.proposerName && (
+                            <span className={`block text-[10px] mt-0.5 ${isCatrina ? 'text-brand-gold/40' : 'text-zinc-500'}`}>
+                              {t.proposedBy}{song.proposerName}
+                            </span>
+                          )}
                         </div>
 
                         {(hasVoted || hasProposed) && (
@@ -1184,7 +1261,14 @@ export default function App() {
               )}
             </div>
             <form onSubmit={authMode === 'register' ? handleRegister : handleLogin} className={`space-y-4 ${isCatrina ? 'relative z-[1]' : ''}`}>
-              <input type="email" placeholder={t.registerEmail} value={regEmail} onChange={(e) => setRegEmail(e.target.value)} required autoFocus
+              {authMode === 'register' && (
+                <div className="space-y-1">
+                  <input type="text" placeholder={t.registerDjName} value={regDjName} onChange={(e) => setRegDjName(e.target.value)} required maxLength={20} autoFocus
+                    className={isCatrina ? 'jukebox-input' : 'w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 text-white focus:border-brand-neon-purple focus:outline-none focus:ring-1 focus:ring-brand-neon-purple transition-all'} />
+                  <p className={`text-[11px] px-1 ${isCatrina ? 'text-brand-gold/40' : 'text-zinc-500'}`}>{t.registerDjNameHelp}</p>
+                </div>
+              )}
+              <input type="email" placeholder={t.registerEmail} value={regEmail} onChange={(e) => setRegEmail(e.target.value)} required
                 className={isCatrina ? 'jukebox-input' : 'w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 text-white focus:border-brand-neon-purple focus:outline-none focus:ring-1 focus:ring-brand-neon-purple transition-all'} />
               <input type="password" placeholder={t.registerPassword} value={regPassword} onChange={(e) => setRegPassword(e.target.value)} required minLength={6}
                 className={isCatrina ? 'jukebox-input' : 'w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 text-white focus:border-brand-neon-purple focus:outline-none focus:ring-1 focus:ring-brand-neon-purple transition-all'} />

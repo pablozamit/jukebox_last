@@ -110,6 +110,9 @@ export const translations = {
       "Tus datos son privados: sin spam ni publicidad"
     ],
     registerSuccess: "¡Bienvenido, DJ! Ahora tienes el doble de capacidad.",
+    registerDjName: "Nombre de DJ",
+    registerDjNameHelp: "Así te verán los demás cuando votes o propongas canciones.",
+    djNameEmpty: "Elige un nombre de DJ para continuar.",
 
     // Temas de diseño
     profileShort: "Perfil",
@@ -130,9 +133,12 @@ export const translations = {
     surveyThanksDesc: "Tu feedback nos ayuda a mejorar.",
 
     // Notificaciones en tiempo real
-    notifVotedOnYourSong: "🎸 ¡Alguien ha votado tu canción '{title}'! ({votes} votos)",
+    notifVotedOnYourSong: "🎸 {name} ha votado tu canción '{title}'! ({votes} votos)",
     notifTokenBack: "🎉 ¡'{title}' ha sonado! Has recuperado tu voto.",
     notifYourSongNext: "🎤 ¡Atención! Tu canción '{title}' va a sonar la siguiente (a no ser que alguien vote más).",
+    anonymous: "Anónimo",
+    someone: "Alguien",
+    proposedBy: "Propuesta por ",
     loginSuccess: "¡Bienvenido de vuelta!",
     loginDesc: "Inicia sesión para recuperar tu perfil DJ: votos, propuestas, puntos y logros.",
     forgotPassword: "¿Olvidaste tu contraseña?",
@@ -173,6 +179,10 @@ export const translations = {
     proposed: "Propuesta",
     votedByYou: "Votada",
     noHistory: "Aún no tienes actividad. ¡Empieza a votar!",
+    yourDjName: "Tu nombre de DJ",
+    editDjName: "Editar",
+    saveDjName: "Guardar",
+    djNameSaved: "¡Nombre de DJ actualizado!",
 
     // Niveles
     levelNovato: "DJ Novato",
@@ -328,6 +338,9 @@ export const translations = {
       "Your data is private: no spam or ads"
     ],
     registerSuccess: "Welcome, DJ! You now have double capacity.",
+    registerDjName: "DJ name",
+    registerDjNameHelp: "This is how others will see you when you vote or propose songs.",
+    djNameEmpty: "Pick a DJ name to continue.",
 
     // Design themes
     profileShort: "Profile",
@@ -348,9 +361,12 @@ export const translations = {
     surveyThanksDesc: "Your feedback helps us improve.",
 
     // Real-time notifications
-    notifVotedOnYourSong: "🎸 Someone voted for your song '{title}'! ({votes} votes)",
+    notifVotedOnYourSong: "🎸 {name} voted for your song '{title}'! ({votes} votes)",
     notifTokenBack: "🎉 '{title}' just played! You got your vote back.",
     notifYourSongNext: "🎤 Heads up! Your song '{title}' is playing next (unless someone outvotes it).",
+    anonymous: "Anonymous",
+    someone: "Someone",
+    proposedBy: "Proposed by ",
     loginSuccess: "Welcome back!",
     loginDesc: "Log in to recover your DJ profile: votes, proposals, points and achievements.",
     forgotPassword: "Forgot your password?",
@@ -391,6 +407,10 @@ export const translations = {
     proposed: "Proposed",
     votedByYou: "Voted",
     noHistory: "No activity yet. Start voting!",
+    yourDjName: "Your DJ name",
+    editDjName: "Edit",
+    saveDjName: "Save",
+    djNameSaved: "DJ name updated!",
 
     // Levels
     levelNovato: "DJ Rookie",
