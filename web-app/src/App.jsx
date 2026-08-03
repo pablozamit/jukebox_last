@@ -220,10 +220,12 @@ export default function App() {
           x: -20,
           duration: 0.4,
           ease: 'power2.out',
-          scrollTrigger: { trigger: item, start: 'top 92%', once: true },
+          immediateRender: false,
+          scrollTrigger: { trigger: item, start: 'top bottom', once: true },
         });
       });
     });
+    ScrollTrigger.refresh();
     return () => ctx.revert();
   }, [activeQueue, isQueueCollapsed]);
 
@@ -235,14 +237,16 @@ export default function App() {
         gsap.from(item, {
           opacity: 0,
           y: 16,
-          duration: 0.35,
+          duration: 0.4,
           ease: 'power2.out',
-          scrollTrigger: { trigger: item, start: 'top 92%', once: true },
+          immediateRender: false,
+          scrollTrigger: { trigger: item, start: 'top bottom', once: true },
         });
       });
     });
+    ScrollTrigger.refresh();
     return () => ctx.revert();
-  }, [catalog, searchTerm]);
+  }, [catalog, searchTerm, isQueueCollapsed]);
 
   const animateVote = (songId) => {
     const button = voteButtonRefs.current.get(songId);
