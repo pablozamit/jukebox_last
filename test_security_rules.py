@@ -15,6 +15,10 @@ USO:
 
 Al terminar borra el usuario de prueba. Deja algunos documentos con prefijo
 __selftest_ (sugerencias/encuesta) que puedes borrar desde el panel de admin.
+
+¡IMPORTANTE! Este script SOLO escribe documentos desechables (prefijo __selftest_).
+NUNCA pruebes escrituras de admin contra datos reales (catalog, songs, users):
+si necesitas verificar el flujo admin, hazlo contra un documento de prueba.
 """
 import json
 import os
