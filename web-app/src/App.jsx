@@ -333,6 +333,7 @@ export default function App() {
 
   const handleRemoveAction = async (songId) => {
     if (!userId) return;
+    lastManualRemoveRef.current = { songId, at: new Date().getTime() };
     try {
       const userRef = doc(db, 'users', userId);
       let updatedVotes = [...userVotes];
@@ -352,7 +353,6 @@ export default function App() {
         }
       }
       if (removed) {
-        lastManualRemoveRef.current = { songId, at: new Date().getTime() };
         const currentVotes = activeQueue[songId]?.votes || 0;
         const songRef = doc(db, 'songs', songId);
         if (currentVotes <= 1) {
@@ -385,6 +385,9 @@ export default function App() {
         return;
       }
     }
+    // Registro optimista: evita notificarte a ti mismo tu propio voto
+    ownVoteRef.current = { songId: song.id, at: new Date().getTime() };
+    lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
     try {
       const userRef = doc(db, 'users', userId);
       if (isProposal) {
@@ -417,9 +420,8 @@ export default function App() {
       ]);
       setLastVotedSongId(song.id);
       animateVote(song.id);
-      ownVoteRef.current = { songId: song.id, at: new Date().getTime() };
-      lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
     } catch (error) {
+      lastVoteCountsRef.current[song.id] = activeQueue[song.id]?.votes || 0;
       toast(t.firebaseError + error.message, 'error');
     }
   };
@@ -577,8 +579,17 @@ export default function App() {
 
   // === Notificaciones en tiempo real ===
   useEffect(() => {
+    lastVotesOrProposalsRef.current = null;
+    lastVoteCountsRef.current = {};
+    prevAchievementsRef.current = null;
+    nextSongNotifiedRef.current = null;
+    ownVoteRef.current = null;
+    lastManualRemoveRef.current = null;
+  }, [userId]);
+
+  useEffect(() => {
     if (!userId) return;
-    const now = new Date().getTime();
+    const now = Date.now();
     Object.entries(activeQueue).forEach(([songId, song]) => {
       if (!userProposals.includes(songId)) return;
       const prev = lastVoteCountsRef.current[songId];
@@ -588,7 +599,7 @@ export default function App() {
       }
       const ownVote = ownVoteRef.current;
       const isOwnVote = ownVote && ownVote.songId === songId && (now - ownVote.at < 3000);
-      if (song.votes === prev + 1 && song.votes >= 2 && !isOwnVote) {
+      if (song.votes > prev && song.votes >= 2 && !isOwnVote) {
         toast(t.notifVotedOnYourSong.replace('{title}', song.title).replace('{votes}', song.votes), 'info', 4500);
       }
       lastVoteCountsRef.current[songId] = song.votes;
@@ -604,7 +615,7 @@ export default function App() {
       lastVotesOrProposalsRef.current = { proposals: curProposals, votes: curVotes };
       return;
     }
-    const now = new Date().getTime();
+    const now = Date.now();
     const lost = [
       ...prevState.proposals.filter(id => !curProposals.includes(id)),
       ...prevState.votes.filter(id => !curVotes.includes(id)),
