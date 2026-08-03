@@ -194,8 +194,16 @@ def main():
         if not firebase_admin._apps:
             firebase_admin.initialize_app(_cred.Certificate(
                 os.getenv("FIREBASE_CREDENTIALS_JSON", "python-bridge/serviceAccountKey.json")))
-        _fs.client().collection('users').document(uid).delete()
-        print("  Doc de usuario huérfano eliminado (Admin SDK)")
+        db_admin = _fs.client()
+        db_admin.collection('users').document(uid).delete()
+        # Barrido de cualquier doc de prueba residual de ejecuciones anteriores
+        removed = 0
+        for coll in ['statistics', 'suggestions', 'design_feedback']:
+            for d in db_admin.collection(coll).stream():
+                if d.id.startswith('__selftest_') or d.id.startswith('__diag') or d.id == 'cualquiercosa':
+                    d.reference.delete()
+                    removed += 1
+        print(f"  Docs de prueba eliminados (Admin SDK): {removed}")
     except Exception:
         print("  (No se pudo limpiar el doc de usuario; se queda un doc vacío con prefijo del uid)")
     print(f"  Usuario de prueba borrado (HTTP {code})")

@@ -72,8 +72,10 @@ service cloud.firestore {
     match /statistics/{docId} {
       allow read: if true;
 
-      // Eventos de voto (addDoc con auto-ID) y encuestas: cualquiera logueado puede crear.
-      allow create: if request.auth != null;
+      // Eventos de voto (addDoc con auto-ID): cualquiera logueado puede crear SOLO vote_events.
+      // (No se permiten crear otros docs en statistics: evitaría docs basura arbitrarios.)
+      allow create: if request.auth != null
+                    && request.resource.data.kind == 'vote_event';
 
       // Contadores de votos/tiempo: solo los documentos canónicos de la app.
       allow update: if request.auth != null
