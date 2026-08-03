@@ -101,7 +101,33 @@ export const translations = {
     loginButton: "Entrar",
     registerLink: "¿No tienes cuenta? Regístrate",
     privacyNotice: "La Catrina no comparte ni utiliza tus datos. Solo sirven para que disfrutes de las ventajas de ser DJ.",
+    registerBenefits: [
+      "6 propuestas de canciones (en vez de 3)",
+      "10 votos en la cola (en vez de 5)",
+      "Gana puntos, sube de nivel y desbloquea logros",
+      "Aparece en el Top DJs de la semana",
+      "Canjea 50 puntos por votos gratis",
+      "Tus datos son privados: sin spam ni publicidad"
+    ],
     registerSuccess: "¡Bienvenido, DJ! Ahora tienes el doble de capacidad.",
+
+    // Temas de diseño
+    profileShort: "Perfil",
+    themeClassic: "Modo Clásico",
+    themeNeon: "Modo Nuevo",
+    themeSwitchedClassic: "Modo Clásico activado",
+    themeSwitchedNeon: "Modo Nuevo activado",
+    themeExplainerClassic: "Este botón alterna entre los dos diseños de La Catrina: el Clásico (vintage, papel y oro) y el Nuevo (neón). Acabas de activar el Clásico.",
+    themeExplainerNeon: "Este botón alterna entre los dos diseños de La Catrina: el Clásico (vintage, papel y oro) y el Nuevo (neón). Acabas de activar el Nuevo.",
+
+    // Encuesta de diseño
+    surveyTitle: "¿Qué diseño prefieres?",
+    surveyDesc: "Ya has podido probar ambos diseños. Ayúdanos a decidir cuál será el definitivo:",
+    surveyNew: "Me gusta más el nuevo diseño (Neón)",
+    surveyClassic: "Prefiero el diseño clásico (Catrina)",
+    surveySkip: "No quiero opinar",
+    surveyThanks: "¡Gracias por tu opinión!",
+    surveyThanksDesc: "Tu feedback nos ayuda a mejorar.",
     loginSuccess: "¡Bienvenido de vuelta!",
     authErrorGeneric: "Error al procesar. Intenta de nuevo.",
     backToGuest: "Seguir como invitado",
@@ -281,7 +307,33 @@ export const translations = {
     loginButton: "Log in",
     registerLink: "No account? Register",
     privacyNotice: "La Catrina does not share or use your data. They only serve so you can enjoy the benefits of being a DJ.",
+    registerBenefits: [
+      "6 song proposals (instead of 3)",
+      "10 votes in the queue (instead of 5)",
+      "Earn points, level up and unlock achievements",
+      "Appear on the weekly Top DJs leaderboard",
+      "Exchange 50 points for free votes",
+      "Your data is private: no spam or ads"
+    ],
     registerSuccess: "Welcome, DJ! You now have double capacity.",
+
+    // Design themes
+    profileShort: "Profile",
+    themeClassic: "Classic Mode",
+    themeNeon: "New Mode",
+    themeSwitchedClassic: "Classic mode enabled",
+    themeSwitchedNeon: "New mode enabled",
+    themeExplainerClassic: "This button switches between La Catrina's two designs: Classic (vintage, paper and gold) and New (neon). You just enabled Classic.",
+    themeExplainerNeon: "This button switches between La Catrina's two designs: Classic (vintage, paper and gold) and New (neon). You just enabled New.",
+
+    // Design survey
+    surveyTitle: "Which design do you prefer?",
+    surveyDesc: "You've been able to try both designs. Help us decide which one will be the final one:",
+    surveyNew: "I like the new design better (Neon)",
+    surveyClassic: "I prefer the classic design (Catrina)",
+    surveySkip: "I'd rather not say",
+    surveyThanks: "Thanks for your feedback!",
+    surveyThanksDesc: "Your feedback helps us improve.",
     loginSuccess: "Welcome back!",
     authErrorGeneric: "Error processing. Try again.",
     backToGuest: "Continue as guest",

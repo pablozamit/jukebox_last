@@ -77,7 +77,7 @@ export function SectionHeader({ label }) {
   return (
     <div className="flex items-center gap-2 px-1 mb-4">
       <div className={`h-px flex-1 ${theme === 'catrina' ? 'bg-brand-gold/20' : 'bg-zinc-800'}`} />
-      <span className="text-[10px] font-bold text-brand-gold/60 uppercase tracking-[0.2em]">{label}</span>
+      <span className={`text-[10px] font-bold uppercase ${theme === 'catrina' ? 'text-brand-gold font-display tracking-[0.3em]' : 'text-brand-gold/60 tracking-[0.2em]'}`}>{label}</span>
       <div className={`h-px flex-1 ${theme === 'catrina' ? 'bg-brand-gold/20' : 'bg-zinc-800'}`} />
     </div>
   );
@@ -89,7 +89,7 @@ export function TextureOverlay() {
 
   return (
     <div
-      className="fixed inset-0 pointer-events-none z-[1] opacity-[0.03]"
+      className="fixed inset-0 pointer-events-none z-[1] opacity-[0.045]"
       style={{
         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
         backgroundSize: '256px 256px',

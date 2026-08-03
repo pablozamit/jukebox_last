@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously } from 'firebase/auth';
-import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, UserPlus } from 'lucide-react';
+import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, UserPlus, Loader2 } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
 import { useTheme } from './ThemeContext';
 import { useToast } from './Toast';
-import { CornerFlourish, SectionHeader, TextureOverlay } from './Ornaments';
+import { CornerFlourish, OrnamentalDivider, SectionHeader, TextureOverlay } from './Ornaments';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Profile from './Profile';
@@ -52,6 +52,8 @@ export default function App() {
   const [authMode, setAuthMode] = useState('register');
   const [showDesignSurvey, setShowDesignSurvey] = useState(false);
   const [surveySubmitted, setSurveySubmitted] = useState(false);
+  const [themeSwitching, setThemeSwitching] = useState(false);
+  const themeSwitchingRef = useRef(false);
   const lastPlayedSongRef = useRef(null);
   const prevThemeRef = useRef(theme);
   const surveyTimerRef = useRef(null);
@@ -186,13 +188,13 @@ export default function App() {
     const ctx = gsap.context(() => {
       gsap.from(npCardRef.current, {
         opacity: 0,
-        y: theme === 'catrina' ? 20 : 30,
+        y: 24,
         duration: 0.8,
         ease: 'power3.out',
       });
     });
     return () => ctx.revert();
-  }, [nowPlaying, theme]);
+  }, [nowPlaying]);
 
   useEffect(() => {
     if (!countersRef.current) return undefined;
@@ -206,7 +208,7 @@ export default function App() {
       });
     });
     return () => ctx.revert();
-  }, [userProposals.length, userVotes.length, theme]);
+  }, [userProposals.length, userVotes.length]);
 
   useEffect(() => {
     const items = document.querySelectorAll('.queue-reveal-item');
@@ -269,7 +271,7 @@ export default function App() {
     if (theme === 'neon' && prevThemeRef.current === 'catrina' && !answered) {
       surveyTimerRef.current = setTimeout(() => {
         setShowDesignSurvey(true);
-      }, 7000);
+      }, 60000);
     }
     prevThemeRef.current = theme;
     return () => {
@@ -296,6 +298,25 @@ export default function App() {
   const dismissSurvey = () => {
     localStorage.setItem('design-survey-answered', 'true');
     setShowDesignSurvey(false);
+  };
+
+  const handleToggleTheme = () => {
+    if (themeSwitchingRef.current) return;
+    themeSwitchingRef.current = true;
+    setThemeSwitching(true);
+    const switchingToClassic = !isCatrina;
+    toggleTheme();
+    window.setTimeout(() => {
+      const explainerSeen = localStorage.getItem('theme-explainer-seen');
+      if (!explainerSeen) {
+        localStorage.setItem('theme-explainer-seen', 'true');
+        toast(switchingToClassic ? t.themeExplainerClassic : t.themeExplainerNeon, 'info', 6000);
+      } else {
+        toast(switchingToClassic ? t.themeSwitchedClassic : t.themeSwitchedNeon, 'success');
+      }
+      themeSwitchingRef.current = false;
+      setThemeSwitching(false);
+    }, 450);
   };
 
   const handleRemoveAction = async (songId) => {
@@ -513,7 +534,7 @@ export default function App() {
   };
 
   const isCatrina = theme === 'catrina';
-  const baseBgClass = isCatrina ? 'bg-[#0d0d0d]' : 'bg-zinc-950';
+  const baseBgClass = isCatrina ? 'bg-[#0f0d0a]' : 'bg-zinc-950';
   const mainTextClass = isCatrina ? 'text-[#f5ecd7]' : 'text-white';
 
   if (loading) {
@@ -529,16 +550,20 @@ export default function App() {
   return (
     <div className={`min-h-screen pb-24 font-sans selection:bg-brand-neon-purple/30 jukebox-bg relative ${baseBgClass}`}>
       <TextureOverlay />
+      {themeSwitching && <div className="theme-transition-overlay" />}
 
       {/* ===== HEADER ===== */}
       <header className="jukebox-header">
         <div className="max-w-lg mx-auto flex items-center justify-between gap-2">
           <button
             onClick={() => { if (isRegistered) setShowProfile(true); else { setAuthMode('register'); setShowRegister(true); } }}
-            className={`hover:text-brand-neon-purple transition-colors p-2 ${isRegistered ? 'text-brand-gold' : isCatrina ? 'text-brand-gold/50' : 'text-white'}`}
+            className={`flex flex-col items-center justify-center gap-0.5 px-2 -ml-2 transition-colors ${isRegistered ? 'text-brand-gold' : isCatrina ? 'text-brand-gold/60 hover:text-brand-gold' : 'text-white/70 hover:text-brand-neon-purple'}`}
             title={isRegistered ? t.profileTitle : t.registerCta}
           >
-            {isRegistered ? <Trophy size={24} /> : <UserPlus size={24} />}
+            {isRegistered ? <Trophy size={22} /> : <UserPlus size={22} />}
+            <span className="text-[9px] font-bold uppercase tracking-wider">
+              {isRegistered ? t.profileShort : t.registerCta}
+            </span>
           </button>
 
           <button
@@ -560,12 +585,20 @@ export default function App() {
 
           <div className="flex items-center gap-1 sm:gap-2">
             <button
-              onClick={toggleTheme}
+              onClick={handleToggleTheme}
+              disabled={themeSwitching}
               className="jukebox-theme-toggle"
-              title={isCatrina ? 'Modo Neon' : 'Modo Catrina Rock'}
-              aria-label="Cambiar tema"
+              title={isCatrina ? t.themeNeon : t.themeClassic}
+              aria-label={isCatrina ? t.themeNeon : t.themeClassic}
+              aria-busy={themeSwitching}
             >
-              <div className="jukebox-theme-toggle-knob" />
+              <span className="jukebox-theme-toggle-label jukebox-theme-toggle-label-c">C</span>
+              <span className="jukebox-theme-toggle-label jukebox-theme-toggle-label-n">N</span>
+              {themeSwitching ? (
+                <Loader2 size={16} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-brand-gold animate-spin" />
+              ) : (
+                <div className="jukebox-theme-toggle-knob" />
+              )}
             </button>
             <button
               onClick={() => setLang('es')}
@@ -654,6 +687,8 @@ export default function App() {
           )}
         </section>
 
+        {isCatrina && <OrnamentalDivider />}
+
         {/* ===== STICKY COUNTERS + SEARCH + QUEUE ===== */}
         <div className={`sticky top-[100px] z-40 space-y-4 pb-4 border-b ${isCatrina ? 'border-brand-gold/10 shadow-2xl' : 'border-zinc-800/50 shadow-2xl'} ${baseBgClass}`}>
           <div ref={countersRef} className="flex gap-2">
@@ -685,21 +720,27 @@ export default function App() {
           </div>
 
           {queueSongs.length > 0 && (
-            <div className="jukebox-queue">
+            <div className={`jukebox-queue ${isCatrina ? 'relative' : ''}`}>
+              {isCatrina && (
+                <>
+                  <CornerFlourish position="tl" size={24} />
+                  <CornerFlourish position="tr" size={24} />
+                </>
+              )}
               <div
                 onClick={() => setIsQueueCollapsed(!isQueueCollapsed)}
                 className="jukebox-queue-header"
               >
                 <div className="flex items-center gap-4">
-                  <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isCatrina ? 'text-brand-gold' : 'text-brand-gold'}`}>{t.nextInQueue}</span>
+                  <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'}`}>{t.nextInQueue}</span>
                   <div className="flex items-center gap-1.5">
-                    <Users size={14} className="text-brand-gold" />
-                    <span className={`text-[10px] font-bold ${isCatrina ? 'text-brand-gold/50' : 'text-brand-gold/60'}`}>{activeUsersCount}</span>
+                    <Users size={14} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} />
+                    <span className={`text-[10px] font-bold ${isCatrina ? 'text-brand-gold/50' : 'text-brand-neon-purple/70'}`}>{activeUsersCount}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-bold ${isCatrina ? 'text-brand-gold/50' : 'text-brand-gold/60'}`}>{queueSongs.length}</span>
-                  {isQueueCollapsed ? <ChevronDown size={14} className="text-brand-gold" /> : <ChevronUp size={14} className="text-brand-gold" />}
+                  <span className={`text-[10px] font-bold ${isCatrina ? 'text-brand-gold/50' : 'text-brand-neon-purple/70'}`}>{queueSongs.length}</span>
+                  {isQueueCollapsed ? <ChevronDown size={14} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} /> : <ChevronUp size={14} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} />}
                 </div>
               </div>
               {!isQueueCollapsed && (
@@ -725,10 +766,10 @@ export default function App() {
                             {song.title}
                           </h4>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            <Flame size={12} className="text-brand-gold" />
+                            <Flame size={12} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} />
                             <span
                               ref={(node) => node ? voteCountRefs.current.set(song.id, node) : voteCountRefs.current.delete(song.id)}
-                              className={`text-xs text-brand-gold font-medium ${lastVotedSongId === song.id ? 'vote-count-pop' : ''}`}
+                              className={`text-xs font-medium ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} ${lastVotedSongId === song.id ? 'vote-count-pop' : ''}`}
                             >
                               {song.votes} {song.votes === 1 ? t.vote : t.votes}
                             </span>
@@ -764,6 +805,8 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {isCatrina && <OrnamentalDivider />}
 
         {/* ===== CATALOG ===== */}
         <section className="space-y-3 pt-2">
@@ -997,6 +1040,16 @@ export default function App() {
                 {authMode === 'register' ? t.registerTitle : t.loginTitle}
               </h2>
               <p className={`text-sm mt-2 ${isCatrina ? 'text-brand-gold/50' : 'text-zinc-400'}`}>{t.registerDesc}</p>
+              {authMode === 'register' && (
+                <div className={`mt-4 text-left space-y-2 ${isCatrina ? 'relative z-[1]' : ''}`}>
+                  {t.registerBenefits.map((b, i) => (
+                    <div key={i} className={`flex items-start gap-2 text-xs leading-snug ${isCatrina ? 'text-brand-gold/60' : 'text-zinc-300'}`}>
+                      <span className={`mt-0.5 shrink-0 font-bold ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-green'}`}>✓</span>
+                      <span>{b}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <form onSubmit={authMode === 'register' ? handleRegister : handleLogin} className={`space-y-4 ${isCatrina ? 'relative z-[1]' : ''}`}>
               <input type="email" placeholder={t.registerEmail} value={regEmail} onChange={(e) => setRegEmail(e.target.value)} required autoFocus
@@ -1068,37 +1121,37 @@ export default function App() {
               <div className={`space-y-6 ${isCatrina ? 'relative z-[1]' : ''}`}>
                 <div className="text-5xl mb-2">🎨</div>
                 <h2 className={`text-xl font-bold ${isCatrina ? 'jukebox-section-title' : 'text-brand-gold'}`}>
-                  ¿Qué diseño prefieres?
+                  {t.surveyTitle}
                 </h2>
                 <p className={`text-sm leading-relaxed ${isCatrina ? 'text-brand-gold/50' : 'text-zinc-400'}`}>
-                  Has cambiado al diseño clásico. Ayúdanos a decidir cuál te gusta más:
+                  {t.surveyDesc}
                 </p>
                 <div className="space-y-3">
                   <button
                     onClick={() => submitDesignSurvey('new')}
                     className={`w-full py-3 font-bold transition-all active:scale-[0.98] ${isCatrina ? 'jukebox-btn-primary' : 'bg-gradient-to-r from-brand-neon-purple to-brand-neon-green text-white rounded-xl hover:opacity-90'}`}
                   >
-                    Me gusta más el nuevo diseño
+                    {t.surveyNew}
                   </button>
                   <button
                     onClick={() => submitDesignSurvey('old')}
                     className={`w-full py-3 rounded-xl font-bold transition-all ${isCatrina ? 'border border-brand-gold/30 text-brand-gold hover:bg-brand-gold/10' : 'border border-brand-gold/30 text-brand-gold hover:bg-brand-gold/10'}`}
                   >
-                    Prefiero el diseño clásico
+                    {t.surveyClassic}
                   </button>
                 </div>
                 <button onClick={dismissSurvey} className={`text-xs transition-colors ${isCatrina ? 'text-brand-gold/30 hover:text-brand-gold' : 'text-zinc-500 hover:text-zinc-300'}`}>
-                  No quiero opinar
+                  {t.surveySkip}
                 </button>
               </div>
             ) : (
               <div className={`space-y-4 ${isCatrina ? 'relative z-[1]' : ''}`}>
                 <div className="text-5xl">✅</div>
                 <h2 className={`text-xl font-bold ${isCatrina ? 'text-brand-gold' : 'text-brand-gold'}`}>
-                  ¡Gracias por tu opinión!
+                  {t.surveyThanks}
                 </h2>
                 <p className={`text-sm ${isCatrina ? 'text-brand-gold/50' : 'text-zinc-400'}`}>
-                  Tu feedback nos ayuda a mejorar.
+                  {t.surveyThanksDesc}
                 </p>
               </div>
             )}
@@ -1269,7 +1322,7 @@ function StatsModal({ onClose, t, catalog, isCatrina, mainTextClass }) {
   };
 
   return (
-    <div className={`fixed inset-0 z-[110] flex flex-col ${isCatrina ? 'bg-[#0d0d0d]' : 'bg-zinc-950'}`}>
+    <div className={`fixed inset-0 z-[110] flex flex-col ${isCatrina ? 'bg-[#0f0d0a]' : 'bg-zinc-950'}`}>
       <header className={`p-4 border-b flex items-center justify-between ${isCatrina ? 'border-brand-gold/10' : 'border-brand-gold/20'}`}>
         <h2 className="text-xl font-bold text-brand-gold flex items-center gap-2">
           <BarChart3 />
