@@ -28,7 +28,7 @@ function getLevelName(min, t) {
   return t.levelNovato;
 }
 
-export default function Profile({ userData, userId, t, onClose, onLogout }) {
+export default function Profile({ userData, userId, t, onClose, onLogout, activeQueue }) {
   const { theme } = useTheme();
   const isCatrina = theme === 'catrina';
   const [historyFilter, setHistoryFilter] = useState('all');
@@ -73,6 +73,28 @@ export default function Profile({ userData, userId, t, onClose, onLogout }) {
   ];
 
   const filteredHistory = historyFilter === 'all' ? history : history.filter(h => h.status === historyFilter);
+
+  // Progreso hacia cada logro (solo los computables con los datos disponibles)
+  const myQueueVotes = (userData.proposals || []).map(id => activeQueue?.[id]?.votes || 0);
+  const maxProposalVotes = myQueueVotes.length ? Math.max(...myQueueVotes) : 0;
+  const sortedVisits = [...visitDates].sort();
+  let nightStreak = 0;
+  let prevVisit = null;
+  sortedVisits.forEach((d) => {
+    if (prevVisit === null) {
+      nightStreak = 1;
+    } else {
+      const diff = (new Date(d) - new Date(prevVisit)) / 86400000;
+      nightStreak = diff === 1 ? nightStreak + 1 : (diff > 1 ? 1 : nightStreak);
+    }
+    prevVisit = d;
+  });
+  const achievementProgress = {
+    first_vote: { cur: Math.min((userData.votes || []).length, 1), target: 1 },
+    influencer: { cur: Math.min(maxProposalVotes, 10), target: 10 },
+    loyal: { cur: Math.min(visitDates.length, 4), target: 4 },
+    streak: { cur: Math.min(nightStreak, 2), target: 2 },
+  };
 
   const handleExchange = async () => {
     if (currentPoints < EXCHANGE_COST) { setExchangeMsg(t.notEnoughPoints); return; }
@@ -249,6 +271,17 @@ export default function Profile({ userData, userId, t, onClose, onLogout }) {
                   <div className="text-2xl mb-1">{ACHIEVEMENT_ICONS[ach.id] || '🏆'}</div>
                   <p className={`profile-achievement-title text-xs font-bold ${unlocked ? 'profile-unlocked-text' : ''}`}>{ach.title}</p>
                   <p className="profile-achievement-desc text-[10px] mt-0.5">{ach.desc}</p>
+                  {!unlocked && achievementProgress[ach.id] && (
+                    <div className="mt-2">
+                      <div className={`h-1 w-full rounded-full overflow-hidden ${isCatrina ? 'bg-white/10' : 'bg-zinc-800'}`}>
+                        <div
+                          className="h-full bg-brand-gold rounded-full transition-all"
+                          style={{ width: `${Math.min(100, (achievementProgress[ach.id].cur / achievementProgress[ach.id].target) * 100)}%` }}
+                        />
+                      </div>
+                      <p className="text-[9px] mt-1 opacity-60">{achievementProgress[ach.id].cur}/{achievementProgress[ach.id].target}</p>
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -84,7 +84,12 @@ async def clear_all_data():
             batch.delete(stats_ref.document('plays_semana'))
             batch.delete(stats_ref.document('votes_semana'))
             batch.delete(stats_ref.document('time_semana'))
-            count += 3
+            batch.delete(db.collection('leaderboard').document('semana'))
+            count += 4
+
+        # 5. DJ de la noche: reset del leaderboard diario
+        batch.delete(db.collection('leaderboard').document('noche'))
+        count += 1
 
         # Día 1: Limpiar "Mes"
         if now.day == 1:
@@ -121,7 +126,7 @@ async def check_for_new_session():
         print(f" Error al comprobar sesión: {e}")
 
 async def reset_song_and_tokens(filename):
-    """Limpieza absoluta de votos y tokens de usuario en listas."""
+    """Limpieza de votos y tokens + puntos y leaderboard (DJ de la noche/semana)."""
     try:
         # Borramos el documento de la cola en lugar de ponerlo a 0, para no acumular basura
         db.collection('songs').document(filename).delete()
@@ -129,25 +134,47 @@ async def reset_song_and_tokens(filename):
         users_ref = db.collection('users')
         batch = db.batch()
         c = 0
-       
-        # 1. Liberar el token de "Propuestas" a quienes la añadieron
+        affected = []  # (uid, name, pts)
+
+        # 1. Liberar el token de "Propuestas" a quienes la añadieron (+10 pts)
         prop_docs = users_ref.where("proposals", "array_contains", filename).stream()
         for udoc in prop_docs:
             batch.update(udoc.reference, {'proposals': firestore.ArrayRemove([filename])})
+            affected.append((udoc.id, udoc.to_dict().get('djName') or 'Anónimo', 10))
             c += 1
             if c >= 400:
                 batch.commit(); batch = db.batch(); c = 0
-               
-        # 2. Liberar el token de "Votos" a quienes la votaron
+        proposer_ids = {uid for uid, _, _ in affected}
+
+        # 2. Liberar el token de "Votos" a quienes la votaron (+5 pts, sin duplicar)
         vote_docs = users_ref.where("votes", "array_contains", filename).stream()
         for udoc in vote_docs:
-            batch.update(udoc.reference, {'votes': firestore.ArrayRemove([filename])})
-            c += 1
-            if c >= 400:
-                batch.commit(); batch = db.batch(); c = 0
+            if udoc.id not in proposer_ids:
+                batch.update(udoc.reference, {'votes': firestore.ArrayRemove([filename])})
+                affected.append((udoc.id, udoc.to_dict().get('djName') or 'Anónimo', 5))
+                c += 1
+                if c >= 400:
+                    batch.commit(); batch = db.batch(); c = 0
                
         if c > 0: batch.commit()
-        print(f" [LIMPIEZA] Votos y tokens reseteados para {filename}")
+
+        # 3. Puntos, noches visitadas y leaderboard (fuera del batch)
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            night_ref = db.collection('leaderboard').document('noche')
+            week_ref = db.collection('leaderboard').document('semana')
+            for uid, name, pts in affected:
+                night_ref.set({f'points.{uid}': firestore.Increment(pts), f'names.{uid}': name}, merge=True)
+                week_ref.set({f'points.{uid}': firestore.Increment(pts), f'names.{uid}': name}, merge=True)
+                users_ref.document(uid).update({
+                    'points': firestore.Increment(pts),
+                    'totalPointsEarned': firestore.Increment(pts),
+                    'visitDates': firestore.ArrayUnion([today]),
+                })
+        except Exception as e:
+            print(f" Error puntos/leaderboard: {e}")
+
+        print(f" [LIMPIEZA] Votos y tokens reseteados para {filename} (+{sum(p for _, _, p in affected)} pts a {len(affected)} DJs)")
     except Exception as e: 
         print(f" Error limpieza: {e}")
 
@@ -164,9 +191,7 @@ async def play_song_on_kodi(ws, filename, current_playing_file):
         'totalTime': 0,
         'lastActive': int(time.time() * 1000)
     })
-    db.collection('state').document('cooldowns').set({filename: int(time.time() * 1000)}, merge=True)
-
-    # Registro de estadísticas de reproducción
+    db.collection('state').document('cooldowns').set({filename: int(time.time() * 1000)}, merge=True)    # Registro de estadísticas de reproducción
     try:
         stats_ref = db.collection('statistics')
         increment_data = {filename: firestore.Increment(1)}
@@ -176,6 +201,16 @@ async def play_song_on_kodi(ws, filename, current_playing_file):
         stats_ref.document('plays_total').set(increment_data, merge=True)
     except Exception as e:
         print(f" Error actualizando estadísticas de reproducción: {e}")
+
+    # Historial de últimas canciones sonadas (para la pantalla de la app)
+    try:
+        hist_ref = db.collection('state').document('played_history')
+        hist_doc = hist_ref.get()
+        songs = hist_doc.to_dict().get('songs', []) if hist_doc.exists else []
+        songs.insert(0, {'title': clean_title(filename), 'ts': int(time.time() * 1000)})
+        hist_ref.set({'songs': songs[:10]})
+    except Exception as e:
+        print(f" Error historial: {e}")
 
     await ws.send(json.dumps(payload))
     print(f" >>> REPRODUCIENDO: {clean_title(filename)}")

@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
-import { Search, Flame, LogIn, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, Loader2 } from 'lucide-react';
+import { Search, Flame, LogIn, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, Loader2, Heart, Crown } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
 import { useTheme } from './ThemeContext';
@@ -9,21 +9,26 @@ import { useToast } from './Toast';
 import { CornerFlourish, OrnamentalDivider, SectionHeader, TextureOverlay } from './Ornaments';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import Profile from './Profile';
+const Profile = lazy(() => import('./Profile'));
+const StatsModal = lazy(() => import('./StatsModal'));
 
 gsap.registerPlugin(ScrollTrigger);
 
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
-  const [catalog, setCatalog] = useState([]);
+  const [catalog, setCatalog] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('jukebox-catalog-v2') || '[]'); } catch { return []; }
+  });
   const [activeQueue, setActiveQueue] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [nowPlaying, setNowPlaying] = useState(null);
   const [userId, setUserId] = useState(null);
   const [userProposals, setUserProposals] = useState([]);
   const [userVotes, setUserVotes] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    try { return (JSON.parse(localStorage.getItem('jukebox-catalog-v2') || '[]')).length === 0; } catch { return true; }
+  });
   const [cooldowns, setCooldowns] = useState({});
   const [currentTime, setCurrentTime] = useState(() => new Date().getTime());
   const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'es');
@@ -53,6 +58,11 @@ export default function App() {
   const [authMode, setAuthMode] = useState('register');
   const [showDesignSurvey, setShowDesignSurvey] = useState(false);
   const [surveySubmitted, setSurveySubmitted] = useState(false);
+  const [catalogFilter, setCatalogFilter] = useState('all');
+  const [activityEvents, setActivityEvents] = useState([]);
+  const [playedHistory, setPlayedHistory] = useState([]);
+  const [nightlyTop, setNightlyTop] = useState(null);
+  const [showLastCall, setShowLastCall] = useState(true);
   const [themeSwitching, setThemeSwitching] = useState(false);
   const themeSwitchingRef = useRef(false);
   const lastPlayedSongRef = useRef(null);
@@ -72,12 +82,27 @@ export default function App() {
   const prevAchievementsRef = useRef(null);
   const nextSongNotifiedRef = useRef(null);
   const lastEventTsRef = useRef(0);
+  const lastCallToastRef = useRef(false);
+  const seenEventsRef = useRef(new Set());
   const voteNotifiedRef = useRef({});
   const userProposalsRef = useRef([]);
   const activeQueueRef = useRef({});
 
   const t = translations[lang];
   const djDisplayName = (userData?.djName && userData.djName.trim()) ? userData.djName.trim() : t.anonymous;
+  const favorites = userData?.favorites || [];
+
+  const toggleFavorite = (songId) => {
+    if (!userId) {
+      toast(t.authError, 'error');
+      return;
+    }
+    const next = favorites.includes(songId)
+      ? favorites.filter(id => id !== songId)
+      : [...favorites, songId];
+    setDoc(doc(db, 'users', userId), { favorites: next }, { merge: true })
+      .catch((error) => toast(t.firebaseError + error.message, 'error'));
+  };
 
   const MAX_PROPOSALS = isRegistered ? 6 : 3;
   const MAX_VOTES = (isRegistered ? 10 : 5) + (userData?.freeVotes || 0);
@@ -157,7 +182,11 @@ export default function App() {
   useEffect(() => {
     const catalogRef = doc(db, 'catalog', 'full_list');
     const unsubscribe = onSnapshot(catalogRef, (docSnap) => {
-      if (docSnap.exists()) setCatalog(docSnap.data().songs || []);
+      if (docSnap.exists()) {
+        const songs = docSnap.data().songs || [];
+        setCatalog(songs);
+        localStorage.setItem('jukebox-catalog-v2', JSON.stringify(songs));
+      }
       setLoading(false);
     });
     return () => unsubscribe();
@@ -398,6 +427,8 @@ export default function App() {
     addDoc(collection(db, 'statistics'), {
       kind: 'vote_event',
       songId: song.id,
+      title: song.title,
+      type: isProposal ? 'proposal' : 'vote',
       voterName: djDisplayName,
       ts: new Date().getTime(),
     })
@@ -584,6 +615,11 @@ export default function App() {
   const filteredCatalog = mergedSongs
     .filter(song => song.votes === 0)
     .filter(song => song.title.toLowerCase().includes(searchTerm.toLowerCase()))
+    .filter(song => {
+      if (catalogFilter === 'favorites') return favorites.includes(song.id);
+      if (catalogFilter === 'mine') return userProposals.includes(song.id) || userVotes.includes(song.id);
+      return true;
+    })
     .sort((a, b) => a.title.localeCompare(b.title));
 
   const calculateProgress = () => {
@@ -642,7 +678,16 @@ export default function App() {
     const unsubscribe = onSnapshot(statsRef, (snapshot) => {
       snapshot.docs.forEach((doc) => {
         const ev = doc.data();
-        if (!ev || ev.kind !== 'vote_event' || !(ev.ts > lastEventTsRef.current)) return;
+        if (!ev || ev.kind !== 'vote_event' || !ev.ts) return;
+        const eventKey = `${doc.id}:${ev.ts}`;
+        if (!seenEventsRef.current.has(eventKey)) {
+          seenEventsRef.current.add(eventKey);
+          setActivityEvents(prev => [
+            { type: ev.type === 'proposal' ? 'proposal' : 'vote', name: ev.voterName || t.anonymous, title: ev.title || ev.songId || '', ts: ev.ts },
+            ...prev,
+          ].slice(0, 15));
+        }
+        if (!(ev.ts > lastEventTsRef.current)) return;
         if (!userProposalsRef.current.includes(ev.songId)) return;
         const song = activeQueueRef.current[ev.songId];
         const ownVote = ownVoteRef.current;
@@ -739,6 +784,48 @@ export default function App() {
     }
   }, [queueSongs, userProposals, userId, nowPlaying, t, toast]);
 
+  // Últimas canciones sonadas (las escribe el bridge en state/played_history)
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'state', 'played_history'), (docSnap) => {
+      setPlayedHistory(docSnap.exists() ? (docSnap.data().songs || []) : []);
+    });
+    return unsubscribe;
+  }, []);
+
+  // DJ de la noche (lo escribe el bridge en leaderboard/noche)
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'leaderboard', 'noche'), (snap) => {
+      if (!snap.exists()) {
+        setNightlyTop(null);
+        return;
+      }
+      const data = snap.data();
+      const points = data.points || {};
+      const names = data.names || {};
+      let best = null;
+      Object.entries(points).forEach(([uid, pts]) => {
+        if (!best || pts > best.points) best = { name: names[uid] || t.anonymous, points: pts };
+      });
+      setNightlyTop(best && best.points > 0 ? best : null);
+    });
+    return unsubscribe;
+  }, [t]);
+
+  // Última llamada: aviso 30 min antes del cierre (1:30)
+  const closing = new Date(currentTime);
+  closing.setHours(1, 30, 0, 0);
+  if (currentTime > closing.getTime()) closing.setDate(closing.getDate() + 1);
+  const minutesToClose = Math.round((closing.getTime() - currentTime) / 60000);
+  const isLastCall = isBridgeActive && checkIsStaffHours() && minutesToClose > 0 && minutesToClose <= 30;
+
+  useEffect(() => {
+    if (isLastCall && !lastCallToastRef.current) {
+      lastCallToastRef.current = true;
+      toast(t.lastCallDesc, 'info', 8000);
+    }
+    if (!isLastCall) lastCallToastRef.current = false;
+  }, [isLastCall, t, toast]);
+
   const isCatrina = theme === 'catrina';
   const baseBgClass = isCatrina ? 'bg-[#0f0d0a]' : 'bg-zinc-950';
   const mainTextClass = isCatrina ? 'text-[#f5ecd7]' : 'text-white';
@@ -834,6 +921,19 @@ export default function App() {
           {t.howItWorks}
         </button>
 
+        {isLastCall && showLastCall && (
+          <div className={`flex items-start gap-3 p-3 rounded-xl border ${isCatrina ? 'bg-[#1a120a] border-brand-gold/40' : 'bg-brand-gold/10 border-brand-gold/50'} shadow-[0_0_20px_rgba(204,165,63,0.15)]`}>
+            <span className="text-2xl leading-none">⏰</span>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-sm text-brand-gold">{t.lastCallTitle}</p>
+              <p className={`text-xs mt-0.5 ${isCatrina ? 'text-brand-gold/60' : 'text-zinc-400'}`}>{t.lastCallDesc}</p>
+            </div>
+            <button onClick={() => setShowLastCall(false)} className={`p-1 shrink-0 transition-colors ${isCatrina ? 'text-brand-gold/40 hover:text-brand-gold' : 'text-zinc-500 hover:text-white'}`}>
+              <X size={16} />
+            </button>
+          </div>
+        )}
+
         {/* ===== NOW PLAYING ===== */}
         <section ref={npCardRef} className="jukebox-np">
           {!isCatrina && (
@@ -892,6 +992,15 @@ export default function App() {
             </div>
           )}
         </section>
+
+        {nightlyTop && (
+          <div className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${isCatrina ? 'bg-brand-gold/5 border-brand-gold/25' : 'bg-brand-neon-purple/10 border-brand-neon-purple/30'}`}>
+            <Crown size={18} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} />
+            <p className={`text-sm font-bold ${mainTextClass}`}>{t.djOfNight}:</p>
+            <p className={`text-sm font-bold truncate ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'}`}>{nightlyTop.name}</p>
+            <span className={`text-xs font-bold shrink-0 ${isCatrina ? 'text-brand-gold/50' : 'text-zinc-500'}`}>({nightlyTop.points} {t.points})</span>
+          </div>
+        )}
 
         {isCatrina && <OrnamentalDivider />}
 
@@ -987,6 +1096,14 @@ export default function App() {
                           )}
                         </div>
 
+                        <button
+                          onClick={() => toggleFavorite(song.id)}
+                          className={`shrink-0 p-1.5 transition-all ${favorites.includes(song.id) ? 'text-red-500' : isCatrina ? 'text-brand-gold/25 hover:text-brand-gold' : 'text-zinc-600 hover:text-red-400'}`}
+                          title={favorites.includes(song.id) ? t.removeFromFavorites : t.addToFavorites}
+                        >
+                          <Heart size={16} className={favorites.includes(song.id) ? 'fill-current' : ''} />
+                        </button>
+
                         {(hasVoted || hasProposed) && (
                           <button
                             onClick={() => handleRemoveAction(song.id)}
@@ -1017,14 +1134,83 @@ export default function App() {
           )}
         </div>
 
+        {(activityEvents.length > 0 || playedHistory.length > 0) && (
+          <section className={`rounded-2xl border p-4 space-y-3 ${isCatrina ? 'relative border-brand-gold/15' : 'bg-zinc-900 border-zinc-800'}`}>
+            <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'}`}>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 bg-current" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-current" />
+              </span>
+              {t.activityTitle}
+            </div>
+
+            {playedHistory.length > 0 && (
+              <div>
+                <p className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 ${isCatrina ? 'text-brand-gold/40' : 'text-zinc-500'}`}>{t.lastPlayedTitle}</p>
+                <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+                  {playedHistory.map((p, i) => (
+                    <span key={`${p.title}-${i}`} className={`shrink-0 text-[10px] px-2 py-1 rounded-full border ${isCatrina ? 'border-brand-gold/20 text-brand-gold/70' : 'border-zinc-700 text-zinc-400'}`}>
+                      {p.title}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activityEvents.length > 0 ? (
+              <div className="space-y-2">
+                {activityEvents.map((e, i) => (
+                  <div key={`${e.title}-${e.ts}-${i}`} className="flex items-center gap-2 text-xs">
+                    <span className="shrink-0">{e.type === 'proposal' ? '🎵' : '🗳️'}</span>
+                    <span className={`flex-1 min-w-0 truncate ${isCatrina ? 'text-brand-gold/70' : 'text-zinc-300'}`}>
+                      {e.type === 'proposal'
+                        ? t.activityProposed.replace('{name}', e.name).replace('{title}', e.title)
+                        : t.activityVoted.replace('{name}', e.name).replace('{title}', e.title)}
+                    </span>
+                    <span className={`shrink-0 text-[10px] ${isCatrina ? 'text-brand-gold/30' : 'text-zinc-600'}`}>
+                      {new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className={`text-xs ${isCatrina ? 'text-brand-gold/30' : 'text-zinc-600'}`}>{t.noActivity}</p>
+            )}
+          </section>
+        )}
+
         {isCatrina && <OrnamentalDivider />}
 
         {/* ===== CATALOG ===== */}
         <section className="space-y-3 pt-2">
           <SectionHeader label={t.songCatalog} />
 
+          <div className="flex gap-2">
+            {[
+              { id: 'all', label: t.allTab },
+              { id: 'favorites', label: `♥ ${t.favoritesTab}` },
+              { id: 'mine', label: t.mySongsTab },
+            ].map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setCatalogFilter(f.id)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
+                  catalogFilter === f.id
+                    ? isCatrina ? 'bg-brand-gold/15 border-brand-gold/50 text-brand-gold' : 'bg-brand-neon-purple/15 border-brand-neon-purple/50 text-brand-neon-purple'
+                    : isCatrina ? 'border-brand-gold/15 text-brand-gold/40 hover:text-brand-gold' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
           {filteredCatalog.length === 0 ? (
-            searchTerm !== '' ? (
+            catalogFilter !== 'all' && searchTerm === '' ? (
+              <p className={`text-center py-10 text-sm ${isCatrina ? 'text-brand-gold/30' : 'text-zinc-600'}`}>
+                {catalogFilter === 'favorites' ? t.favoritesEmpty : t.mySongsEmpty}
+              </p>
+            ) : searchTerm !== '' ? (
               <div className={`jukebox-suggest-card ${isCatrina ? '' : 'bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-center space-y-4'}`}>
                 <div className="flex justify-center">
                   <Music2 size={40} className={isCatrina ? 'text-brand-gold/20' : 'text-zinc-700'} />
@@ -1108,6 +1294,14 @@ export default function App() {
                       {t.noVotes}
                     </span>
                   </div>
+
+                  <button
+                    onClick={() => toggleFavorite(song.id)}
+                    className={`p-2 transition-all shrink-0 ${favorites.includes(song.id) ? 'text-red-500' : isCatrina ? 'text-brand-gold/30 hover:text-brand-gold' : 'text-zinc-600 hover:text-red-400'}`}
+                    title={favorites.includes(song.id) ? t.removeFromFavorites : t.addToFavorites}
+                  >
+                    <Heart size={18} className={favorites.includes(song.id) ? 'fill-current' : ''} />
+                  </button>
 
                   <button
                     ref={(node) => node ? voteButtonRefs.current.set(song.id, node) : voteButtonRefs.current.delete(song.id)}
@@ -1205,13 +1399,15 @@ export default function App() {
 
       {/* ===== STATS MODAL ===== */}
       {showStats && (
-        <StatsModal
-          onClose={() => setShowStats(false)}
-          t={t}
-          catalog={catalog}
-          isCatrina={isCatrina}
-          mainTextClass={mainTextClass}
-        />
+        <Suspense fallback={null}>
+          <StatsModal
+            onClose={() => setShowStats(false)}
+            t={t}
+            catalog={catalog}
+            isCatrina={isCatrina}
+            mainTextClass={mainTextClass}
+          />
+        </Suspense>
       )}
 
       {/* ===== PLAYING BANNER ===== */}
@@ -1386,254 +1582,18 @@ export default function App() {
       )}
 
       {showProfile && (
-        <Profile
-          userData={userData}
-          userId={userId}
-          t={t}
-          onClose={() => setShowProfile(false)}
-          onLogout={handleLogout}
-        />
+        <Suspense fallback={null}>
+          <Profile
+            userData={userData}
+            userId={userId}
+            t={t}
+            activeQueue={activeQueue}
+            onClose={() => setShowProfile(false)}
+            onLogout={handleLogout}
+          />
+        </Suspense>
       )}
     </div>
   );
 }
 
-function StatsModal({ onClose, t, catalog, isCatrina, mainTextClass }) {
-  const [range, setRange] = useState('hoy');
-  const [data, setData] = useState({ plays: {}, votes: {}, time: {}, playsTotal: {}, votesTotal: {} });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      setLoading(true);
-      try {
-        const statsRef = collection(db, 'statistics');
-        let baseDocs = [];
-        if (range === 'cost') {
-          baseDocs = ['plays_total', 'votes_total'];
-        } else {
-          baseDocs = [`plays_${range}`, `votes_${range}`];
-          if (range === 'hoy' || range === 'semana') baseDocs.push(`time_${range}`);
-        }
-        const results = await Promise.all(baseDocs.map(id => getDoc(doc(statsRef, id))));
-        const newData = { plays: {}, votes: {}, time: {}, playsTotal: {}, votesTotal: {} };
-
-        // Frescura de los contadores 'hoy'/'semana': el bridge los reinicia al abrir
-        // el bar. Si no ha habido actividad en la sesión actual, son de un día
-        // anterior (p. ej. al consultar un lunes estando cerrados).
-        let lastActive = 0;
-        try {
-          const npSnap = await getDoc(doc(db, 'state', 'nowPlaying'));
-          lastActive = npSnap.data()?.lastActive || 0;
-        } catch { /* sin conexión o sin doc */ }
-        const boundary = new Date();
-        boundary.setHours(2, 0, 0, 0);
-        if (Date.now() < boundary.getTime()) boundary.setDate(boundary.getDate() - 1);
-        const monday = new Date();
-        monday.setHours(2, 0, 0, 0);
-        monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-
-        results.forEach((docSnap, index) => {
-          if (docSnap.exists()) {
-            const id = baseDocs[index];
-            const data = docSnap.data();
-            const stale = (range === 'hoy' && lastActive < boundary.getTime())
-                       || (range === 'semana' && lastActive < monday.getTime());
-            if (stale) return;
-            if (id === `plays_${range}`) newData.plays = data;
-            else if (id === `votes_${range}`) newData.votes = data;
-            else if (id === `time_${range}`) newData.time = data;
-            else if (id === 'plays_total') newData.playsTotal = data;
-            else if (id === 'votes_total') newData.votesTotal = data;
-          }
-        });
-        if (range === 'total' || range === 'cost') {
-          newData.playsTotal = newData.playsTotal || newData.plays;
-          newData.votesTotal = newData.votesTotal || newData.votes;
-        }
-        setData(newData);
-      } catch (error) {
-        console.error("Error fetching stats:", error);
-      }
-      setLoading(false);
-    };
-    fetchStats();
-  }, [range]);
-
-  const renderTopList = (statsMap, title) => {
-    const sorted = Object.entries(statsMap)
-      .map(([id, count]) => {
-        const song = catalog.find(s => s.id === id);
-        return { id, count, title: song ? song.title : id };
-      })
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-    if (sorted.length === 0) return null;
-    const maxCount = sorted[0].count;
-
-    return (
-      <div className="space-y-4">
-        <h3 className="text-brand-gold font-bold uppercase tracking-wider text-sm flex items-center gap-2">
-          {title === 'plays' ? <Disc3 size={16} /> : <Flame size={16} />}
-          {title === 'plays' ? t.statsPlays : t.statsVotes}
-        </h3>
-        <div className="space-y-3">
-          {sorted.map((item) => (
-            <div key={item.id} className="space-y-1">
-              <div className={`flex justify-between text-xs ${isCatrina ? 'text-brand-gold/70' : 'text-zinc-300'}`}>
-                <span className="truncate pr-4">{item.title}</span>
-                <span className="font-bold">{item.count}</span>
-              </div>
-              <div className={`h-2 w-full rounded-full overflow-hidden ${isCatrina ? 'bg-white/[0.04]' : 'bg-zinc-800'}`}>
-                <div className="h-full bg-brand-neon-purple rounded-full" style={{ width: `${(item.count / maxCount) * 100}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const renderTimeChart = () => {
-    if (range !== 'hoy' && range !== 'semana') return null;
-    const timeData = data.time;
-    const isHoy = range === 'hoy';
-    const keys = isHoy
-      ? ['18', '19', '20', '21', '22', '23', '0', '1']
-      : Array.from({ length: 7 }, (_, i) => ((i + 1) % 7).toString());
-    const maxCount = Math.max(...Object.values(timeData), 0) || 1;
-
-    return (
-      <div className="space-y-4">
-        <h3 className="text-brand-gold font-bold uppercase tracking-wider text-sm">
-          {isHoy ? t.statsTime : t.statsDays}
-        </h3>
-        <div className="flex items-end gap-1 h-32 pt-4">
-          {keys.map(key => {
-            const count = timeData[key] || 0;
-            const height = (count / maxCount) * 100;
-            return (
-              <div key={key} className="flex-1 flex flex-col items-center gap-2 h-full">
-                <div className="flex-1 w-full flex items-end">
-                  <div
-                    className={`w-full border-t rounded-t-sm transition-all duration-500 ${isCatrina ? 'bg-brand-gold/20 border-brand-gold' : 'bg-brand-neon-green/40 border-brand-neon-green'}`}
-                    style={{ height: `${height}%` }}
-                    title={`${count} votos`}
-                  />
-                </div>
-                <span className={`text-[10px] ${isCatrina ? 'text-brand-gold/40' : 'text-zinc-500'}`}>
-                  {isHoy ? `${key}h` : t.daysShort[parseInt(key)]}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  const renderAvgCostList = () => {
-    if (!data.playsTotal || !data.votesTotal || Object.keys(data.playsTotal).length === 0) return null;
-    const avgCosts = [];
-    for (const [songId, plays] of Object.entries(data.playsTotal)) {
-      if (plays >= 2) {
-        const votes = data.votesTotal[songId] || 0;
-        const avg = votes / plays;
-        const song = catalog.find(s => s.id === songId);
-        avgCosts.push({ id: songId, title: song ? song.title : songId, avg });
-      }
-    }
-    if (avgCosts.length === 0) return null;
-    avgCosts.sort((a, b) => b.avg - a.avg);
-    const topAvgs = avgCosts.slice(0, 5);
-
-    return (
-      <div className="space-y-4">
-        <h3 className="text-brand-gold font-bold uppercase tracking-wider text-sm flex items-center gap-2">
-          <BarChart3 size={16} />
-          {t.avgVoteCostTitle}
-        </h3>
-        <div className="space-y-3">
-          {topAvgs.map((item) => (
-            <div key={item.id} className={`flex justify-between items-center p-3 border rounded-xl ${isCatrina ? 'bg-brand-gold/5 border-brand-gold/10' : 'bg-zinc-900 border-zinc-800'}`}>
-              <span className={`truncate pr-4 text-sm font-medium ${mainTextClass}`}>{item.title}</span>
-              <span className={`font-bold text-sm shrink-0 ${item.avg >= 2 ? 'text-brand-gold' : (isCatrina ? 'text-brand-gold/30' : 'text-zinc-400')}`}>
-                {item.avg.toFixed(1)}v
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className={`fixed inset-0 z-[110] flex flex-col ${isCatrina ? 'bg-[#0f0d0a]' : 'bg-zinc-950'}`}>
-      <header className={`p-4 border-b flex items-center justify-between ${isCatrina ? 'border-brand-gold/10' : 'border-brand-gold/20'}`}>
-        <h2 className="text-xl font-bold text-brand-gold flex items-center gap-2">
-          <BarChart3 />
-          {t.statsTitle}
-        </h2>
-        <button onClick={onClose} className={`p-2 transition-colors ${isCatrina ? 'text-brand-gold/40 hover:text-brand-gold' : 'text-zinc-400 hover:text-white'}`}>
-          <X size={24} />
-        </button>
-      </header>
-
-      <nav className={`flex p-2 gap-1 border-b overflow-x-auto custom-scrollbar ${isCatrina ? 'bg-[#141210] border-brand-gold/10' : 'bg-zinc-900 border-zinc-800'}`}>
-        {[
-          { id: 'hoy', label: t.statsToday },
-          { id: 'semana', label: t.statsWeek },
-          { id: 'mes', label: t.statsMonth },
-          { id: 'total', label: t.statsTotal },
-          { id: 'cost', label: t.statsCost }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setRange(tab.id)}
-            className={`flex-1 py-2 text-sm font-bold transition-all rounded-lg ${isCatrina ? 'jukebox-stat-tab' : ''} ${
-              range === tab.id
-                ? (isCatrina ? 'jukebox-stat-tab-active' : 'bg-brand-gold text-zinc-950')
-                : (isCatrina ? 'jukebox-stat-tab-inactive' : 'text-zinc-500 hover:text-zinc-300')
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-
-      <main className="flex-1 overflow-y-auto p-6 space-y-10">
-        {loading ? (
-          <div className="flex items-center justify-center h-40 text-brand-gold animate-pulse">
-            {t.loading}
-          </div>
-        ) : (
-          <>
-            {range === 'cost' ? (
-              renderAvgCostList() || (
-                <div className={`text-center py-20 ${isCatrina ? 'text-brand-gold/15' : 'text-zinc-600'}`}>
-                  <BarChart3 size={48} className="mx-auto mb-4 opacity-20" />
-                  <p>{t.noStats}</p>
-                </div>
-              )
-            ) : (
-              <>
-                {Object.keys(data.plays).length === 0 && Object.keys(data.votes).length === 0 ? (
-                  <div className={`text-center py-20 ${isCatrina ? 'text-brand-gold/15' : 'text-zinc-600'}`}>
-                    <BarChart3 size={48} className="mx-auto mb-4 opacity-20" />
-                    <p>{t.noStats}</p>
-                  </div>
-                ) : (
-                  <>
-                    {renderTimeChart()}
-                    {renderTopList(data.votes, 'votes')}
-                    {renderTopList(data.plays, 'plays')}
-                  </>
-                )}
-              </>
-            )}
-          </>
-        )}
-      </main>
-    </div>
-  );
-}
