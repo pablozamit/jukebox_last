@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously } from 'firebase/auth';
+import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
 import { Search, Flame, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, UserPlus, Loader2 } from 'lucide-react';
 import { db, auth } from './firebase';
 import { translations } from './translations';
@@ -417,14 +417,27 @@ export default function App() {
     e.preventDefault();
     setAuthErrorMsg('');
     try {
+      let currentUser = auth.currentUser;
+      if (!currentUser) {
+        await signInAnonymously(auth);
+        currentUser = auth.currentUser;
+      }
       const credential = EmailAuthProvider.credential(regEmail, regPassword);
-      await linkWithCredential(auth.currentUser, credential);
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, { isRegistered: true, email: regEmail });
+      await linkWithCredential(currentUser, credential);
+      await setDoc(doc(db, 'users', auth.currentUser.uid), {
+        isRegistered: true,
+        email: regEmail,
+      }, { merge: true });
       setShowRegister(false);
       setIsRegistered(true);
+      toast(t.registerSuccess, 'success');
     } catch (error) {
-      setAuthErrorMsg(error.code === 'auth/email-already-in-use' ? t.authErrorGeneric : error.message);
+      if (error.code === 'auth/email-already-in-use' || error.code === 'auth/credential-already-in-use') {
+        setAuthMode('login');
+        setAuthErrorMsg(t.registerEmailInUse);
+      } else {
+        setAuthErrorMsg(error.code === 'auth/weak-password' ? t.weakPassword : error.message);
+      }
     }
   };
 
@@ -435,8 +448,22 @@ export default function App() {
       await signInWithEmailAndPassword(auth, regEmail, regPassword);
       setShowLogin(false);
       setIsRegistered(true);
+      toast(t.loginSuccess, 'success');
     } catch {
       setAuthErrorMsg(t.wrongCredentials);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!regEmail) {
+      setAuthErrorMsg(t.enterEmailFirst);
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, regEmail);
+      toast(t.passwordResetSent, 'success');
+    } catch {
+      toast(t.passwordResetError, 'error');
     }
   };
 
@@ -1043,7 +1070,7 @@ export default function App() {
               <h2 className={`text-2xl font-bold uppercase tracking-wider ${isCatrina ? 'jukebox-section-title' : 'text-brand-gold'}`}>
                 {authMode === 'register' ? t.registerTitle : t.loginTitle}
               </h2>
-              <p className={`text-sm mt-2 ${isCatrina ? 'text-brand-gold/50' : 'text-zinc-400'}`}>{t.registerDesc}</p>
+              <p className={`text-sm mt-2 ${isCatrina ? 'text-brand-gold/50' : 'text-zinc-400'}`}>{authMode === 'register' ? t.registerDesc : t.loginDesc}</p>
               {authMode === 'register' && (
                 <div className={`mt-4 text-left space-y-1.5 ${isCatrina ? 'relative z-[1]' : ''}`}>
                   {t.registerBenefits.map((b, i) => (
@@ -1065,6 +1092,14 @@ export default function App() {
                 {authMode === 'register' ? t.registerButton : t.loginButton}
               </button>
             </form>
+            {authMode === 'login' && (
+              <button
+                onClick={handleForgotPassword}
+                className={`w-full text-center text-xs mt-3 underline transition-colors ${isCatrina ? 'text-brand-gold/40 hover:text-brand-gold' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                {t.forgotPassword}
+              </button>
+            )}
             <button onClick={() => { setAuthMode(authMode === 'register' ? 'login' : 'register'); setAuthErrorMsg(''); }}
               className={`w-full text-center text-sm mt-4 transition-colors ${isCatrina ? 'text-brand-gold/50 hover:text-brand-gold' : 'text-zinc-500 hover:text-brand-gold'}`}>
               {authMode === 'register' ? t.loginLink : t.registerLink}
