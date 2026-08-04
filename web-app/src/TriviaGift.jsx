@@ -20,7 +20,7 @@ const OPTION_COLORS = ['red', 'blue', 'yellow', 'green'];
  * Si aciertas: +1 propuesta de canción y +2 votos extra.
  * Una sola oportunidad por ronda (aunque falles).
  */
-export default function TriviaGift({ userId, t, lastTriviaAt }) {
+export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered }) {
   const { theme } = useTheme();
   const toast = useToast();
   const isCatrina = theme === 'catrina';
@@ -115,7 +115,9 @@ export default function TriviaGift({ userId, t, lastTriviaAt }) {
     return () => window.clearInterval(timer);
   }, [showModal, phase, deadline, question, finishRound]);
 
-  if (!userId || !giftVisible || answeredThisWindow) return null;
+  // La trivia (votos + puntos extra) es un incentivo exclusivo para usuarios registrados.
+  // Los invitados pueden votar y proponer normalmente, pero no reciben el regalo.
+  if (!userId || !isRegistered || !giftVisible || answeredThisWindow) return null;
 
   return (
     <>

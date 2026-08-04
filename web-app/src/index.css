@@ -254,6 +254,140 @@ body {
   background: rgba(181,138,58,0.03);
 }
 
+/* ===== HEART (Now Playing) ===== */
+.jukebox-heart-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ef4444;
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.4));
+  animation: heartIdle 2.8s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+[data-theme="catrina"] .jukebox-heart-icon {
+  color: #c0392b;
+  filter: drop-shadow(0 0 5px rgba(192, 57, 43, 0.3));
+}
+@keyframes heartIdle {
+  0%, 100% { transform: scale(1); }
+  15%      { transform: scale(1.12); }
+  30%      { transform: scale(1); }
+  45%      { transform: scale(1.08); }
+  60%      { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jukebox-heart-icon { animation: none; }
+}
+
+/* ===== ACTIVITY TICKER (compact, single-line) ===== */
+.jukebox-activity-ticker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+.jukebox-activity-ticker-catrina {
+  background: rgba(181, 138, 58, 0.03);
+  border: 1px solid rgba(181, 138, 58, 0.1);
+  border-radius: 2px;
+}
+.jukebox-ticker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+  background: rgba(176, 38, 255, 0.08);
+  border-bottom: 1px solid rgba(176, 38, 255, 0.2);
+}
+.jukebox-ticker-header:hover {
+  background: rgba(176, 38, 255, 0.14);
+}
+[data-theme="catrina"] .jukebox-ticker-header {
+  background: rgba(181, 138, 58, 0.08);
+  border-bottom: 1.5px solid var(--catrina-border);
+  padding: 10px 14px;
+}
+[data-theme="catrina"] .jukebox-ticker-header:hover {
+  background: rgba(181, 138, 58, 0.14);
+}
+.jukebox-ticker-played {
+  display: flex;
+  gap: 5px;
+  overflow: hidden;
+}
+.jukebox-ticker-chip {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid rgba(63, 63, 70, 0.6);
+  color: rgba(161, 161, 170, 0.7);
+  white-space: nowrap;
+}
+.jukebox-ticker-chip-catrina {
+  border: 1px solid rgba(181, 138, 58, 0.15);
+  color: rgba(181, 138, 58, 0.5);
+}
+.jukebox-ticker-events {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+.jukebox-ticker-dot {
+  flex-shrink: 0;
+  font-size: 7px;
+  animation: tickerDotPulse 2s ease-in-out infinite;
+}
+@keyframes tickerDotPulse {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+.jukebox-ticker-scroll {
+  display: flex;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(to right, transparent 0%, black 4%, black 96%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 4%, black 96%, transparent 100%);
+}
+.jukebox-ticker-scroll-inner {
+  display: flex;
+  gap: 16px;
+  white-space: nowrap;
+  animation: tickerMarquee 30s linear infinite;
+}
+.jukebox-ticker-scroll:hover .jukebox-ticker-scroll-inner {
+  animation-play-state: paused;
+}
+@keyframes tickerMarquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.jukebox-ticker-event {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  animation: tickerSlideIn 0.4s ease-out;
+}
+@keyframes tickerSlideIn {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jukebox-ticker-event, .jukebox-ticker-dot { animation: none; }
+  .jukebox-ticker-scroll-inner { animation: none; }
+}
+
 /* ===== BUTTONS ===== */
 .jukebox-btn-vote {
   @apply shrink-0 flex items-center justify-center h-8 px-3 rounded-lg font-bold text-xs transition-all;

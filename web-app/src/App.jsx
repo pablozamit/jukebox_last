@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc, query, where, getDocs, runTransaction } from 'firebase/firestore';
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc, query, where, limit, getDocs, runTransaction } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
 import { Search, Flame, LogIn, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, Loader2, Heart, Crown } from 'lucide-react';
 import { db, auth } from './firebase';
@@ -56,6 +56,7 @@ export default function App() {
   const [suggestYoutubeUrl, setSuggestYoutubeUrl] = useState('');
   const [showStats, setShowStats] = useState(false);
   const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
+  const [isTickerCollapsed, setIsTickerCollapsed] = useState(false);
   const [activeUsersCount, setActiveUsersCount] = useState(0);
 
   const [userData, setUserData] = useState(null);
@@ -88,6 +89,8 @@ export default function App() {
   const discRef = useRef(null);
   const countersRef = useRef(null);
   const npCardRef = useRef(null);
+  const heartRef = useRef(null);
+  const npPrevVotesRef = useRef(0);
   const voteButtonRefs = useRef(new Map());
   const voteCountRefs = useRef(new Map());
   const [lastVotedSongId, setLastVotedSongId] = useState(null);
@@ -291,24 +294,33 @@ export default function App() {
     return () => ctx.revert();
   }, [userProposals.length, userVotes.length]);
 
+  // GSAP reveal en cola eliminado: re-animaba cada item en cada snapshot de
+  // Firestore (votos, propuestas), lo que generaba el "bloque con líneas que
+  // aparecen en tiempo real" que rompía el diseño clásico. Ahora los items de
+  // la cola se actualizan in-place sin animación de entrada repetitiva.
+
+  // === Heart burst: detectar en tiempo real cuando alguien vota la canción sonando ===
   useEffect(() => {
-    const items = document.querySelectorAll('.queue-reveal-item');
-    if (items.length === 0) return undefined;
-    const ctx = gsap.context(() => {
-      items.forEach((item) => {
-        gsap.from(item, {
-          opacity: 0,
-          x: -20,
-          duration: 0.4,
-          ease: 'power2.out',
-          immediateRender: false,
-          scrollTrigger: { trigger: item, start: 'top bottom', once: true },
-        });
-      });
-    });
-    ScrollTrigger.refresh();
-    return () => ctx.revert();
-  }, [activeQueue, isQueueCollapsed]);
+    if (!nowPlaying?.title || !isBridgeActive) {
+      npPrevVotesRef.current = 0;
+      return;
+    }
+    // Buscar la canción sonando en la cola activa por título
+    const npSong = Object.values(activeQueue).find(s => s.title === nowPlaying.title && s.votes > 0);
+    if (!npSong) {
+      npPrevVotesRef.current = 0;
+      return;
+    }
+    const currentVotes = npSong.votes || 0;
+    // Si los votos aumentaron Y ya teníamos un conteo previo → alguien dio un "me gusta"
+    if (currentVotes > npPrevVotesRef.current && npPrevVotesRef.current > 0 && heartRef.current) {
+      gsap.killTweensOf(heartRef.current);
+      gsap.timeline()
+        .to(heartRef.current, { scale: 1.9, duration: 0.28, ease: 'back.out(2.5)' })
+        .to(heartRef.current, { scale: 1, duration: 0.6, ease: 'elastic.out(1, 0.38)' });
+    }
+    npPrevVotesRef.current = currentVotes;
+  }, [activeQueue, nowPlaying, isBridgeActive]);
 
   useEffect(() => {
     const items = document.querySelectorAll('.catalog-reveal-item');
@@ -675,23 +687,23 @@ export default function App() {
     }
   };
 
-  const mergedSongs = catalog
+  const mergedSongs = useMemo(() => catalog
     .map(song => ({
       ...song,
       votes: activeQueue[song.id]?.votes || 0,
       firstVotedAt: activeQueue[song.id]?.firstVotedAt || null,
       proposerName: activeQueue[song.id]?.proposerName || null
     }))
-    .filter(song => song.available !== false);
+    .filter(song => song.available !== false), [catalog, activeQueue]);
 
-  const queueSongs = mergedSongs
+  const queueSongs = useMemo(() => mergedSongs
     .filter(song => song.votes > 0)
     .sort((a, b) => {
       if (b.votes !== a.votes) return b.votes - a.votes;
       return (a.firstVotedAt || 0) - (b.firstVotedAt || 0);
-    });
+    }), [mergedSongs]);
 
-  const filteredCatalog = mergedSongs
+  const filteredCatalog = useMemo(() => mergedSongs
     .filter(song => song.votes === 0)
     .filter(song => song.title.toLowerCase().includes(searchTerm.toLowerCase()))
     .filter(song => {
@@ -699,7 +711,7 @@ export default function App() {
       if (catalogFilter === 'mine') return userProposals.includes(song.id) || userVotes.includes(song.id);
       return true;
     })
-    .sort((a, b) => a.title.localeCompare(b.title));
+    .sort((a, b) => a.title.localeCompare(b.title)), [mergedSongs, searchTerm, catalogFilter, favorites, userProposals, userVotes]);
 
   const visibleCatalog = filteredCatalog.slice(0, visibleCount);
 
@@ -734,6 +746,7 @@ export default function App() {
     ownVoteRef.current = null;
     lastManualRemoveRef.current = null;
     lastEventTsRef.current = 0;
+    seenEventsRef.current = new Set();
     voteNotifiedRef.current = {};
     userProposalsRef.current = [];
     activeQueueRef.current = {};
@@ -751,14 +764,22 @@ export default function App() {
   useEffect(() => {
     if (!userId) return;
     lastEventTsRef.current = new Date().getTime();
-    const statsRef = collection(db, 'statistics');
-    const unsubscribe = onSnapshot(statsRef, (snapshot) => {
+    const statsQuery = query(
+      collection(db, 'statistics'),
+      where('kind', '==', 'vote_event'),
+      limit(30)
+    );
+    const unsubscribe = onSnapshot(statsQuery, (snapshot) => {
       snapshot.docs.forEach((doc) => {
         const ev = doc.data();
-        if (!ev || ev.kind !== 'vote_event' || !ev.ts) return;
+        if (!ev || !ev.ts) return;
         const eventKey = `${doc.id}:${ev.ts}`;
         if (!seenEventsRef.current.has(eventKey)) {
           seenEventsRef.current.add(eventKey);
+          // Prevenir crecimiento indefinido: podar a las 50 entradas más recientes
+          if (seenEventsRef.current.size > 100) {
+            seenEventsRef.current = new Set(Array.from(seenEventsRef.current).slice(-50));
+          }
           setActivityEvents(prev => [
             { type: ev.type === 'proposal' ? 'proposal' : 'vote', name: ev.voterName || t.anonymous, title: ev.title || ev.songId || '', ts: ev.ts },
             ...prev,
@@ -1037,6 +1058,25 @@ export default function App() {
                 {nowPlaying?.title || t.autoMode}
               </h3>
 
+              {/* === HEART: pulso lento + burst cuando alguien vota en tiempo real === */}
+              {nowPlaying?.title && (() => {
+                const npSong = Object.values(activeQueue).find(s => s.title === nowPlaying.title && s.votes > 0);
+                if (!npSong) return null;
+                return (
+                  <div className={`flex items-center justify-center gap-2 mb-3 ${isCatrina ? 'relative z-[1]' : ''}`}>
+                    <div ref={heartRef} className="jukebox-heart-icon">
+                      <Heart size={22} className="fill-current" />
+                    </div>
+                    <span className={`text-xs font-medium ${isCatrina ? 'text-brand-gold/60' : 'text-zinc-400'}`}>
+                      {npSong.votes} {npSong.votes === 1 ? t.likeSingular : t.likesPlural}
+                      {npSong.proposerName && (
+                        <span className={isCatrina ? 'text-brand-gold/40' : 'text-zinc-500'}> → {npSong.proposerName}</span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })()}
+
               <div ref={discRef} className={`mx-auto my-4 ${isCatrina ? 'jukebox-np-disc' : 'text-brand-neon-purple opacity-80'}`}>
                 <Disc3 size={isCatrina ? 56 : 48} />
               </div>
@@ -1157,8 +1197,7 @@ export default function App() {
                     return (
                       <div
                         key={`queue-${song.id}`}
-                        data-reveal
-                        className={`queue-reveal-item jukebox-queue-item ${isTop ? 'jukebox-queue-item-top' : 'bg-transparent hover:bg-white/5'}`}
+                        className={`jukebox-queue-item ${isTop ? 'jukebox-queue-item-top' : 'bg-transparent hover:bg-white/5'}`}
                       >
                         <div className="flex-1 min-w-0">
                           <h4 className={`text-sm font-bold truncate ${mainTextClass}`}>
@@ -1218,50 +1257,60 @@ export default function App() {
           )}
         </div>
 
-        {(activityEvents.length > 0 || playedHistory.length > 0) && (
-          <section className={`rounded-2xl border p-4 space-y-3 ${isCatrina ? 'relative border-brand-gold/15' : 'bg-zinc-900 border-zinc-800'}`}>
-            <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'}`}>
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 bg-current" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-current" />
-              </span>
-              {t.activityTitle}
+        <div className={`jukebox-activity-ticker ${isCatrina ? 'jukebox-activity-ticker-catrina' : ''}`}>
+            <div
+              onClick={() => setIsTickerCollapsed(!isTickerCollapsed)}
+              className="jukebox-ticker-header"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`relative flex h-1.5 w-1.5`}>
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 ${isCatrina ? 'bg-brand-gold' : 'bg-brand-neon-purple'}`} />
+                  <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${isCatrina ? 'bg-brand-gold' : 'bg-brand-neon-purple'}`} />
+                </span>
+                <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'}`}>{t.activityTitle}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-bold ${isCatrina ? 'text-brand-gold/50' : 'text-brand-neon-purple/70'}`}>{activityEvents.length}</span>
+                {isTickerCollapsed
+                  ? <ChevronDown size={14} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} />
+                  : <ChevronUp size={14} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} />}
+              </div>
             </div>
-
-            {playedHistory.length > 0 && (
-              <div>
-                <p className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 ${isCatrina ? 'text-brand-gold/40' : 'text-zinc-500'}`}>{t.lastPlayedTitle}</p>
-                <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1">
-                  {playedHistory.map((p, i) => (
-                    <span key={`${p.title}-${i}`} className={`shrink-0 text-[10px] px-2 py-1 rounded-full border ${isCatrina ? 'border-brand-gold/20 text-brand-gold/70' : 'border-zinc-700 text-zinc-400'}`}>
-                      {p.title}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activityEvents.length > 0 ? (
-              <div className="space-y-2">
-                {activityEvents.map((e, i) => (
-                  <div key={`${e.title}-${e.ts}-${i}`} className="flex items-center gap-2 text-xs">
-                    <span className="shrink-0">{e.type === 'proposal' ? '🎵' : '🗳️'}</span>
-                    <span className={`flex-1 min-w-0 truncate ${isCatrina ? 'text-brand-gold/70' : 'text-zinc-300'}`}>
-                      {e.type === 'proposal'
-                        ? t.activityProposed.replace('{name}', e.name).replace('{title}', e.title)
-                        : t.activityVoted.replace('{name}', e.name).replace('{title}', e.title)}
-                    </span>
-                    <span className={`shrink-0 text-[10px] ${isCatrina ? 'text-brand-gold/30' : 'text-zinc-600'}`}>
-                      {new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+            {!isTickerCollapsed && (
+              <>
+                {playedHistory.length > 0 && (
+                  <div className="jukebox-ticker-played">
+                    {playedHistory.slice(0, 4).map((p, i) => (
+                      <span key={`played-${p.title}-${i}`} className={`jukebox-ticker-chip ${isCatrina ? 'jukebox-ticker-chip-catrina' : ''}`}>
+                        ♪ {p.title}
+                      </span>
+                    ))}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className={`text-xs ${isCatrina ? 'text-brand-gold/30' : 'text-zinc-600'}`}>{t.noActivity}</p>
+                )}
+                {activityEvents.length > 0 ? (
+                  <div className="jukebox-ticker-events">
+                    <span className={`jukebox-ticker-dot ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'}`}>●</span>
+                    <div className="jukebox-ticker-scroll">
+                      <div className="jukebox-ticker-scroll-inner">
+                        {activityEvents.map((e, i) => (
+                          <span key={`ev-${e.title}-${e.ts}-${i}`} className={`jukebox-ticker-event ${isCatrina ? 'text-brand-gold/70' : 'text-zinc-400'}`}>
+                            {e.type === 'proposal' ? '🎵' : '♥'} {e.name} {e.type === 'proposal' ? t.activityProposedShort : t.activityVotedShort} '{e.title}'
+                          </span>
+                        ))}
+                        {activityEvents.map((e, i) => (
+                          <span key={`ev-dup-${e.title}-${e.ts}-${i}`} className={`jukebox-ticker-event ${isCatrina ? 'text-brand-gold/70' : 'text-zinc-400'}`}>
+                            {e.type === 'proposal' ? '🎵' : '♥'} {e.name} {e.type === 'proposal' ? t.activityProposedShort : t.activityVotedShort} '{e.title}'
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <span className={`jukebox-ticker-event ${isCatrina ? 'text-brand-gold/30' : 'text-zinc-600'}`}>{t.noActivity}</span>
+                )}
+              </>
             )}
-          </section>
-        )}
+          </div>
 
         {isCatrina && <OrnamentalDivider />}
 
@@ -1416,8 +1465,8 @@ export default function App() {
         </section>
       </main>
 
-      {/* ===== TRIVIA: regalo 3D cada 30 min ===== */}
-      <TriviaGift userId={userId} t={t} lastTriviaAt={userData?.lastTriviaAt || null} />
+      {/* ===== TRIVIA: regalo 3D cada 30 min — solo usuarios registrados ===== */}
+      <TriviaGift userId={userId} t={t} lastTriviaAt={userData?.lastTriviaAt || null} isRegistered={isRegistered} />
 
       {/* ===== HELP MODAL ===== */}
       {showHelp && (
