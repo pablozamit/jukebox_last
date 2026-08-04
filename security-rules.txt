@@ -51,10 +51,10 @@ service cloud.firestore {
       // Siempre deben existir los dos arrays; el resto son campos de perfil controlados.
       allow create: if request.auth != null && request.auth.uid == userId
                     && request.resource.data.keys().hasAll(['proposals', 'votes'])
-                    && request.resource.data.keys().hasOnly([
-                      'proposals', 'votes', 'freeVotes', 'freeProposals', 'lastTriviaAt',
-                      'isRegistered', 'email', 'djName', 'points', 'favorites'
-                    ]);
+                    && request.resource.data.keys().hasOnly(['proposals', 'votes', 'isRegistered', 'email', 'djName'])
+                    && (!request.resource.data.keys().hasAny(['isRegistered', 'email', 'djName'])
+                        || (request.resource.data.isRegistered == true
+                            && request.resource.data.email == request.auth.token.email));
 
       // El cliente solo puede editar sus votos/propuestas, favoritos y nombre DJ.
       allow update: if request.auth != null && request.auth.uid == userId
@@ -81,6 +81,14 @@ service cloud.firestore {
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastTriviaAt'])
                     && request.time.toMillis() - resource.data.get('lastTriviaAt', 0) >= 30 * 60 * 1000
                     && request.resource.data.lastTriviaAt >= request.time.toMillis() - 60 * 1000;
+
+      // Canjear 50 puntos por un voto gratis: operación legítima y acotada.
+      // No permite fabricar puntos ni votos; exige saldo suficiente y un cambio exacto.
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points', 'freeVotes'])
+                    && resource.data.get('points', 0) >= 50
+                    && request.resource.data.points == resource.data.get('points', 0) - 50
+                    && request.resource.data.freeVotes == resource.data.get('freeVotes', 0) + 1;
     }
 
     // ============ 5. commands — Solo admins (regla global) ============
@@ -93,42 +101,67 @@ service cloud.firestore {
     match /suggestions/{docId} {
       allow create: if request.auth != null;
       allow read, update, delete: if false;
-    }
-
-    // ============ 7. statistics — Votos, tiempos y eventos públicos ============
+    }    // ============ 7. statistics — Contadores protegidos ============
     match /statistics/{docId} {
       allow read: if true;
-
-      // Eventos de voto (addDoc con auto-ID): cualquiera logueado puede crear SOLO vote_events.
-      // (No se permiten crear otros docs en statistics: evitaría docs basura arbitrarios.)
-      allow create: if request.auth != null
-                    && request.resource.data.kind == 'vote_event';
-
-      // Contadores de votos/tiempo: solo los documentos canónicos de la app.
-      // El bridge borra los contadores al comenzar una jornada, así que la primera
-      // votación del día puede ser una CREACIÓN, no solo una actualización.
-      allow create, update: if request.auth != null
-                            && docId.matches('^(votes|time)_(hoy|semana|mes|total)$');
-
-      // Limpieza automática de vote_events viejos (>2h): solo esos documentos y solo borrar.
-      allow delete: if request.auth != null
-                    && resource.data.kind == 'vote_event'
-                    && request.time.toMillis() - resource.data.ts > (2 * 60 * 60 * 1000);
+      allow write: if false;
     }
 
-    // ============ 8. admins — Solo lectura del propio documento ============
+    // ============ 8. voteEvents — Evento anidado bajo la canción ============
+    // La ruta aporta songId de forma estática a las reglas. El evento solo puede
+    // crearse en la misma transacción que actualiza el usuario y la canción.
+    match /songs/{songId}/voteEvents/{eventId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['kind', 'userId', 'songId', 'title', 'type', 'voterName', 'ts'])
+                    && request.resource.data.keys().hasAll(['kind', 'userId', 'songId', 'title', 'type', 'voterName', 'ts'])
+                    && request.resource.data.kind == 'vote_event'
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.songId == songId
+                    && (request.resource.data.type == 'vote' || request.resource.data.type == 'proposal')
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.title.size() <= 240
+                    && request.resource.data.voterName is string
+                    && request.resource.data.voterName.size() > 0
+                    && request.resource.data.voterName.size() <= 40
+                    && request.resource.data.ts is int
+                    && request.resource.data.ts >= request.time.toMillis() - (10 * 60 * 1000)
+                    && request.resource.data.ts <= request.time.toMillis() + 60000
+                    && (
+                      (request.resource.data.type == 'proposal'
+                        && !exists(/databases/$(database)/documents/songs/$(songId))
+                        && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes == 1
+                        && getAfter(/databases/$(database)/documents/songs/$(songId)).data.title == request.resource.data.title
+                        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.proposals.hasAll([songId]))
+                      ||
+                      (request.resource.data.type == 'vote'
+                        && exists(/databases/$(database)/documents/songs/$(songId))
+                        && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes
+                           == get(/databases/$(database)/documents/songs/$(songId)).data.votes + 1
+                        && getAfter(/databases/$(database)/documents/songs/$(songId)).data.title == request.resource.data.title
+                        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.votes.hasAll([songId]))
+                    );
+
+      allow update, delete: if false;
+    }
+
+    // ============ 9. admins — Solo lectura del propio documento ============
+
+
+    // ============ 9. admins — Solo lectura del propio documento ============
     match /admins/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if false;
     }
 
-    // ============ 9. leaderboard — Solo lectura (escribe el bridge) ============
+    // ============ 10. leaderboard — Solo lectura (escribe el bridge) ============
     match /leaderboard/{docId} {
       allow read: if true;
       allow write: if false;
     }
 
-    // ============ 10. design_feedback — Encuesta de diseño ============
+    // ============ 11. design_feedback — Encuesta de diseño ============
     match /design_feedback/{docId} {
       allow create: if request.auth != null;
       allow read, update, delete: if false;

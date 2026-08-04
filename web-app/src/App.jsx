@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc, query, where, limit, getDocs, runTransaction } from 'firebase/firestore';
+import { collection, collectionGroup, onSnapshot, doc, getDoc, setDoc, addDoc, query, where, limit, runTransaction } from 'firebase/firestore';
+import { resolveSongId } from './appLogic';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
 import { Search, Flame, LogIn, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, Loader2, Heart, Crown } from 'lucide-react';
 import { db, auth } from './firebase';
@@ -109,7 +110,7 @@ export default function App() {
 
   const t = translations[lang];
   const djDisplayName = (userData?.djName && userData.djName.trim()) ? userData.djName.trim() : t.anonymous;
-  const favorites = userData?.favorites || [];
+  const favorites = useMemo(() => userData?.favorites || [], [userData?.favorites]);
 
   const toggleFavorite = (songId) => {
     if (!userId) {
@@ -306,7 +307,7 @@ export default function App() {
       return;
     }
     // Buscar la canción sonando en la cola activa por título
-    const npSong = Object.values(activeQueue).find(s => s.title === nowPlaying.title && s.votes > 0);
+    const npSong = Object.values(activeQueue).find(s => resolveSongId(nowPlaying, [s]) === s.id && s.votes > 0);
     if (!npSong) {
       npPrevVotesRef.current = 0;
       return;
@@ -423,31 +424,40 @@ export default function App() {
     lastManualRemoveRef.current = { songId, at: new Date().getTime() };
     try {
       const userRef = doc(db, 'users', userId);
-      let updatedVotes = [...userVotes];
-      let updatedProposals = [...userProposals];
-      let removed = false;
-      const voteIndex = updatedVotes.indexOf(songId);
-      if (voteIndex !== -1) {
-        updatedVotes.splice(voteIndex, 1);
-        await updateDoc(userRef, { votes: updatedVotes });
-        removed = true;
-      } else {
-        const proposalIndex = updatedProposals.indexOf(songId);
-        if (proposalIndex !== -1) {
-          updatedProposals.splice(proposalIndex, 1);
-          await updateDoc(userRef, { proposals: updatedProposals });
-          removed = true;
+      const songRef = doc(db, 'songs', songId);
+      await runTransaction(db, async (transaction) => {
+        const [userSnap, songSnap] = await Promise.all([
+          transaction.get(userRef),
+          transaction.get(songRef),
+        ]);
+        if (!userSnap.exists()) return;
+
+        const currentUser = userSnap.data();
+        const currentVotes = currentUser.votes || [];
+        const currentProposals = currentUser.proposals || [];
+        const hasVote = currentVotes.includes(songId);
+        const hasProposal = currentProposals.includes(songId);
+        if (!hasVote && !hasProposal) return;
+
+        // Los datos históricos pueden tener el mismo id en ambos arrays. Retiramos
+        // solo el token que corresponde a la primera coincidencia, igual que el
+        // comportamiento anterior, para no perder dos tokens por una acción.
+        const nextVotes = hasVote ? currentVotes.filter(id => id !== songId) : currentVotes;
+        const nextProposals = !hasVote && hasProposal
+          ? currentProposals.filter(id => id !== songId)
+          : currentProposals;
+
+        transaction.set(userRef, {
+          proposals: nextProposals,
+          votes: nextVotes,
+        }, { merge: true });
+
+        if (songSnap.exists()) {
+          const currentVotes = songSnap.data().votes || 0;
+          if (currentVotes <= 1) transaction.delete(songRef);
+          else transaction.update(songRef, { votes: currentVotes - 1 });
         }
-      }
-      if (removed) {
-        const currentVotes = activeQueue[songId]?.votes || 0;
-        const songRef = doc(db, 'songs', songId);
-        if (currentVotes <= 1) {
-          await deleteDoc(songRef);
-        } else {
-          await updateDoc(songRef, { votes: increment(-1) });
-        }
-      }
+      });
     } catch (error) {
       toast(t.firebaseError + error.message, 'error');
     }
@@ -490,69 +500,45 @@ export default function App() {
         const currentUser = userSnap.exists() ? userSnap.data() : {};
         const currentProposals = currentUser.proposals || [];
         const currentVotes = currentUser.votes || [];
+        // Recalcular dentro de la transacción: otra persona puede haber creado
+        // la canción entre el render y el commit.
+        const effectiveIsProposal = !songSnap.exists();
         const nextUserValues = {
-          proposals: isProposal ? [...currentProposals, song.id] : currentProposals,
-          votes: isProposal ? currentVotes : [...currentVotes, song.id],
+          proposals: effectiveIsProposal ? [...currentProposals, song.id] : currentProposals,
+          votes: effectiveIsProposal ? currentVotes : [...currentVotes, song.id],
         };
         transaction.set(userRef, nextUserValues, { merge: true });
 
         if (songSnap.exists()) {
           transaction.update(songRef, {
             votes: (songSnap.data().votes || 0) + 1,
-            ...(isProposal ? { proposerName: djDisplayName } : {}),
+            ...(effectiveIsProposal ? { proposerName: djDisplayName } : {}),
           });
         } else {
           transaction.set(songRef, {
             title: song.title,
             votes: 1,
             firstVotedAt: votedAt,
-            ...(isProposal ? { proposerName: djDisplayName } : {}),
+            ...(effectiveIsProposal ? { proposerName: djDisplayName } : {}),
           });
         }
+        // El evento viaja dentro de la misma transacción que el voto. Las reglas
+        // comprueban con getAfter() que usuario y canción cambiaron de verdad;
+        // así no se pueden fabricar estadísticas con un addDoc independiente.
+        const eventRef = doc(collection(db, 'songs', song.id, 'voteEvents'));
+        transaction.set(eventRef, {
+          kind: 'vote_event',
+          userId,
+          songId: song.id,
+          title: song.title,
+          type: effectiveIsProposal ? 'proposal' : 'vote',
+          voterName: userData?.djName?.trim() || 'ANONYMOUS',
+          ts: votedAt,
+        });
       });
 
-      // Solo anunciar el voto después de confirmar usuario y canción.
-      addDoc(collection(db, 'statistics'), {
-        kind: 'vote_event',
-        songId: song.id,
-        title: song.title,
-        type: isProposal ? 'proposal' : 'vote',
-        voterName: djDisplayName,
-        ts: new Date().getTime(),
-      })
-        .then(() => {
-          const cutoff = new Date().getTime() - 2 * 60 * 60 * 1000;
-          getDocs(query(collection(db, 'statistics'), where('songId', '==', song.id)))
-            .then((snap) => {
-              snap.docs
-                .filter(d => d.data().kind === 'vote_event' && (d.data().ts || 0) < cutoff)
-                .forEach(d => deleteDoc(d.ref));
-            })
-            .catch(() => {});
-        })
-        .catch((error) => console.error('Firebase vote event error:', error));
-
-      const now = new Date();
-      let hour = now.getHours();
-      let day = now.getDay();
-      if (hour < 2) day = (day === 0) ? 6 : day - 1;
-      const statsRef = collection(db, 'statistics');
-      const songIncrement = { [song.id]: increment(1) };
-      const hourKey = hour.toString();
-      const dayKey = day.toString();
-      // Las estadísticas son auxiliares: un fallo de permisos o cuota no debe
-      // invalidar una propuesta/voto que ya se ha guardado correctamente.
-      await Promise.all([
-        setDoc(doc(statsRef, 'votes_hoy'), songIncrement, { merge: true }),
-        setDoc(doc(statsRef, 'votes_semana'), songIncrement, { merge: true }),
-        setDoc(doc(statsRef, 'votes_mes'), songIncrement, { merge: true }),
-        setDoc(doc(statsRef, 'votes_total'), songIncrement, { merge: true }),
-        setDoc(doc(statsRef, 'time_hoy'), { [hourKey]: increment(1) }, { merge: true }),
-        setDoc(doc(statsRef, 'time_semana'), { [dayKey]: increment(1) }, { merge: true })
-      ]).catch((error) => {
-        console.error('Firebase stats update error:', error);
-        toast(`Voto guardado, pero estadísticas: ${firebaseErrorMessage(error)}`, 'info');
-      });
+      // Los contadores los calcula el bridge a partir de este evento confirmado.
+      // El navegador no escribe mapas de estadísticas arbitrarios.
       setLastVotedSongId(song.id);
       animateVote(song.id);
     } catch (error) {
@@ -648,13 +634,15 @@ export default function App() {
   useEffect(() => {
     if (!nowPlaying || !userId) return undefined;
     const title = nowPlaying.title;
-    if (!title || title === lastPlayedSongRef.current) return undefined;
-    lastPlayedSongRef.current = title;
-    const isProposed = (userData?.proposals || []).includes(title);
-    const isVoted = (userData?.votes || []).includes(title);
+    const songId = resolveSongId(nowPlaying, catalog);
+    const eventKey = songId || title;
+    if (!title || eventKey === lastPlayedSongRef.current) return undefined;
+    lastPlayedSongRef.current = eventKey;
+    const isProposed = (userData?.proposals || []).includes(songId) || (userData?.proposals || []).includes(title);
+    const isVoted = (userData?.votes || []).includes(songId) || (userData?.votes || []).includes(title);
     if (!isProposed && !isVoted) return undefined;
     const showTimer = window.setTimeout(() => {
-      setPlayingBannerData({ title, isProposed, isVoted });
+      setPlayingBannerData({ title, songId, isProposed, isVoted });
       setShowPlayingBanner(true);
     }, 0);
     const hideTimer = window.setTimeout(() => setShowPlayingBanner(false), 8000);
@@ -662,7 +650,7 @@ export default function App() {
       window.clearTimeout(showTimer);
       window.clearTimeout(hideTimer);
     };
-  }, [nowPlaying, userId, userData]);
+  }, [nowPlaying, userId, userData, catalog]);
 
   const validateYoutubeUrl = (url) => {
     return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(url);
@@ -765,14 +753,14 @@ export default function App() {
     if (!userId) return;
     lastEventTsRef.current = new Date().getTime();
     const statsQuery = query(
-      collection(db, 'statistics'),
+      collectionGroup(db, 'voteEvents'),
       where('kind', '==', 'vote_event'),
       limit(30)
     );
     const unsubscribe = onSnapshot(statsQuery, (snapshot) => {
       snapshot.docs.forEach((doc) => {
         const ev = doc.data();
-        if (!ev || !ev.ts) return;
+        if (!ev || !ev.ts || !ev.countedSession) return;
         const eventKey = `${doc.id}:${ev.ts}`;
         if (!seenEventsRef.current.has(eventKey)) {
           seenEventsRef.current.add(eventKey);
@@ -781,7 +769,7 @@ export default function App() {
             seenEventsRef.current = new Set(Array.from(seenEventsRef.current).slice(-50));
           }
           setActivityEvents(prev => [
-            { type: ev.type === 'proposal' ? 'proposal' : 'vote', name: ev.voterName || t.anonymous, title: ev.title || ev.songId || '', ts: ev.ts },
+            { type: ev.type === 'proposal' ? 'proposal' : 'vote', name: ev.voterName === 'ANONYMOUS' ? t.anonymous : (ev.voterName || t.anonymous), title: ev.title || ev.songId || '', ts: ev.ts },
             ...prev,
           ].slice(0, 15));
         }
@@ -793,7 +781,7 @@ export default function App() {
         if (!song || song.votes < 2 || isOwnVote) return;
         if (voteNotifiedRef.current[ev.songId] === song.votes) return;
         voteNotifiedRef.current[ev.songId] = song.votes;
-        const name = ev.voterName || t.anonymous;
+        const name = ev.voterName === 'ANONYMOUS' ? t.anonymous : (ev.voterName || t.anonymous);
         toast(t.notifVotedOnYourSong.replace('{name}', name).replace('{title}', song.title).replace('{votes}', song.votes), 'info', 4500);
       });
     });
@@ -1060,7 +1048,7 @@ export default function App() {
 
               {/* === HEART: pulso lento + burst cuando alguien vota en tiempo real === */}
               {nowPlaying?.title && (() => {
-                const npSong = Object.values(activeQueue).find(s => s.title === nowPlaying.title && s.votes > 0);
+                const npSong = Object.values(activeQueue).find(s => resolveSongId(nowPlaying, [s]) === s.id && s.votes > 0);
                 if (!npSong) return null;
                 return (
                   <div className={`flex items-center justify-center gap-2 mb-3 ${isCatrina ? 'relative z-[1]' : ''}`}>
@@ -1186,7 +1174,7 @@ export default function App() {
                 <div className={`max-h-[35vh] overflow-y-auto custom-scrollbar ${isCatrina ? 'divide-y divide-white/[0.03]' : 'divide-y divide-zinc-800/50'}`}>
                   {queueSongs.map((song) => {
                     const isTop = song.id === topSongId;
-                    const isNowPlaying = nowPlaying?.title === song.title;
+                    const isNowPlaying = (nowPlaying?.songId && nowPlaying.songId === song.id) || (!nowPlaying?.songId && nowPlaying?.title === song.title);
                     const limitReached = userVotes.length >= MAX_VOTES;
                     const hasVoted = userVotes.includes(song.id);
                     const hasProposed = userProposals.includes(song.id);
@@ -1407,7 +1395,7 @@ export default function App() {
           ) : (
             <div>
             {visibleCatalog.map((song) => {
-              const isNowPlaying = nowPlaying?.title === song.title;
+              const isNowPlaying = (nowPlaying?.songId && nowPlaying.songId === song.id) || (!nowPlaying?.songId && nowPlaying?.title === song.title);
               const limitReached = userProposals.length >= MAX_PROPOSALS;
               const songCooldown = cooldowns[song.id];
               const isCoolingDown = songCooldown && (currentTimestamp - songCooldown < 3600000);

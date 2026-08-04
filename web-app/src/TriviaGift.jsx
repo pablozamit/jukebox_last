@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { doc, updateDoc, increment } from 'firebase/firestore';
+import { doc, runTransaction } from 'firebase/firestore';
 import { X } from 'lucide-react';
 import { db } from './firebase';
 import { useTheme } from './ThemeContext';
@@ -37,6 +37,7 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered }) {
   const [deadline, setDeadline] = useState(0);
 
   const closeTimerRef = useRef(null);
+  const roundConsumedRef = useRef(false);
 
   const windowId = Math.floor(now / WINDOW_MS);
   const timeInWindow = now % WINDOW_MS;
@@ -70,30 +71,66 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered }) {
     setPhase('playing');
     setTimeLeft(QUESTION_TIME);
     setWon(false);
+    roundConsumedRef.current = false;
     setDeadline(Date.now() + QUESTION_TIME * 1000);
     setShowModal(true);
   };
 
-  const closeModal = () => setShowModal(false);
-
   const finishRound = useCallback((correct, correctArtist) => {
+    if (roundConsumedRef.current) return;
+    roundConsumedRef.current = true;
     setPhase('revealed');
-    setAnsweredRound({ windowId: Math.floor(Date.now() / WINDOW_MS), done: true });
-    if (correct) {
-      setWon(true);
-      updateDoc(doc(db, 'users', userId), {
-        freeProposals: increment(1),
-        freeVotes: increment(2),
-        lastTriviaAt: Date.now(),
-      }).then(() => {
+    const triviaTimestamp = Date.now();
+    const userRef = doc(db, 'users', userId);
+    runTransaction(db, async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists()) throw new Error('missing-user');
+      const current = userSnap.data();
+      const previous = Number(current.lastTriviaAt || 0);
+      if (triviaTimestamp - previous < WINDOW_MS) throw new Error('trivia-already-used');
+      transaction.update(userRef, correct
+        ? {
+            freeProposals: Number(current.freeProposals || 0) + 1,
+            freeVotes: Number(current.freeVotes || 0) + 2,
+            lastTriviaAt: triviaTimestamp,
+          }
+        : { lastTriviaAt: triviaTimestamp });
+    }).then(() => {
+      setAnsweredRound({ windowId: Math.floor(Date.now() / WINDOW_MS), done: true });
+      if (correct) {
+        setWon(true);
         toast(t.triviaWin, 'success', 4500);
-      }).catch(() => toast(t.firebaseError, 'error'));
-    } else {
-      updateDoc(doc(db, 'users', userId), { lastTriviaAt: Date.now() }).catch(() => {});
-      toast(t.triviaLose.replace('{answer}', correctArtist), 'error', 5000);
-    }
-    closeTimerRef.current = window.setTimeout(closeModal, 2600);
+      } else {
+        toast(t.triviaLose.replace('{answer}', correctArtist), 'error', 5000);
+      }
+      closeTimerRef.current = window.setTimeout(() => setShowModal(false), 2600);
+    }).catch((error) => {
+      // Solo consumimos la oportunidad localmente cuando el servidor confirmó
+      // el resultado (o confirmó que ya se había usado en otra pestaña).
+      if (error.message === 'trivia-already-used') {
+        setAnsweredRound({ windowId: Math.floor(Date.now() / WINDOW_MS), done: true });
+        closeTimerRef.current = window.setTimeout(() => setShowModal(false), 2600);
+        toast(t.triviaAlreadyPlayed || t.firebaseError, 'info');
+      } else {
+        // La red puede fallar sin que se haya consumido la ronda. Permitir
+        // reintentar sin dejar el guard local ni el contador bloqueados.
+        roundConsumedRef.current = false;
+        setSelected(null);
+        setPhase('playing');
+        setTimeLeft(QUESTION_TIME);
+        setDeadline(Date.now() + QUESTION_TIME * 1000);
+        toast(t.firebaseError, 'error');
+      }
+    });
   }, [userId, t, toast]);
+
+  const closeModal = () => {
+    if (phase === 'playing' && question) {
+      finishRound(false, question.options[question.answer]);
+      return;
+    }
+    setShowModal(false);
+  };
 
   const handleSelect = (idx) => {
     if (phase !== 'playing' || selected !== null || !question) return;

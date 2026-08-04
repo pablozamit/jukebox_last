@@ -76,6 +76,14 @@ def check(name, expected, status):
     print(f"  [{'PASS' if ok else 'FAIL'}] {name}: HTTP {status} (esperado {exp})")
 
 
+def commit(token, writes):
+    return api(f"{BASE}:commit", "POST", {"writes": writes}, token)[0]
+
+
+def doc_name(path):
+    return f"projects/{PROJECT}/databases/(default)/documents/{path}"
+
+
 def main():
     print("== 1. Crear usuario de prueba ==")
     code, resp = api(
@@ -152,13 +160,53 @@ def main():
               {"fields": fields({"proposals": [], "votes": []})}, token)[0])
 
     print("\n== 5. statistics (votos, tiempos, eventos) ==")
-    old_ts = int(time.time() * 1000) - 3 * 3600 * 1000
+    event_ts = int(time.time() * 1000)
+    old_ts = event_ts - 3 * 3600 * 1000
     ev = tid('ev')
-    check("crear vote_event", [200],
-          api(f"{BASE}/statistics?documentId={ev}", "POST",
+    check("crear vote_event fuera de transacción", [403],
+          api(f"{BASE}/songs/{tid('standalone_song')}/voteEvents?documentId={ev}", "POST",
+              {"fields": fields({"kind": "vote_event", "userId": uid, "songId": tid('standalone_song'), "title": "T",
+                                 "type": "vote", "voterName": "A", "ts": event_ts})}, token)[0])
+    tx_song = tid('tx_song')
+    tx_event = tid('tx_event')
+    tx_fields = {
+        "kind": "vote_event",
+        "userId": uid,
+        "songId": tx_song,
+        "title": "Transactional song",
+        "type": "proposal",
+        "voterName": "DJ Selftest",
+        "ts": event_ts,
+    }
+    tx_writes = [
+        {
+            "update": {
+                "name": doc_name(f"users/{uid}"),
+                "fields": fields({"proposals": [tx_song]}),
+            },
+            "updateMask": {"fieldPaths": ["proposals"]},
+        },
+        {
+            "update": {
+                "name": doc_name(f"songs/{tx_song}"),
+                "fields": fields({"title": "Transactional song", "votes": 1, "firstVotedAt": event_ts}),
+            },
+            "updateMask": {"fieldPaths": ["title", "votes", "firstVotedAt"]},
+        },
+        {
+            "update": {
+                "name": doc_name(f"songs/{tx_song}/voteEvents/{tx_event}"),
+                "fields": fields(tx_fields),
+            },
+            "updateMask": {"fieldPaths": list(tx_fields)},
+        },
+    ]
+    check("crear voto + canción + evento en una transacción", [200], commit(token, tx_writes))
+    check("crear evento con campo extra", [403],
+          api(f"{BASE}/statistics?documentId={tid('bad_event')}", "POST",
               {"fields": fields({"kind": "vote_event", "songId": "x", "title": "T",
-                                 "type": "vote", "voterName": "A", "ts": old_ts})}, token)[0])
-    check("actualizar votes_hoy", [200],
+                                 "type": "vote", "voterName": "A", "ts": event_ts, "hack": True})}, token)[0])
+    check("actualizar votes_hoy desde cliente (protegido)", [403],
           api(f"{BASE}/statistics/votes_hoy?updateMask.fieldPaths={tid('v')}", "PATCH",
               {"fields": fields({tid('v'): 1})}, token)[0])
     check("actualizar doc NO canónico", [403],
@@ -166,7 +214,11 @@ def main():
               {"fields": fields({"a": 1})}, token)[0])
     check("borrar votes_hoy (protegido)", [403],
           api(f"{BASE}/statistics/votes_hoy", "DELETE", token=token)[0])
-    check("borrar vote_event viejo (>2h)", [200],
+    check("crear vote_event antiguo desde cliente", [403],
+          api(f"{BASE}/statistics?documentId={tid('old_ev')}", "POST",
+              {"fields": fields({"kind": "vote_event", "songId": "x", "title": "T",
+                                 "type": "vote", "voterName": "A", "ts": old_ts})}, token)[0])
+    check("borrar vote_event reciente", [403],
           api(f"{BASE}/statistics/{ev}", "DELETE", token=token)[0])
 
     print("\n== 6. otras colecciones ==")
@@ -208,7 +260,7 @@ def main():
         db_admin.collection('users').document(uid).delete()
         # Barrido de cualquier doc de prueba residual de ejecuciones anteriores
         removed = 0
-        for coll in ['statistics', 'suggestions', 'design_feedback']:
+        for coll in ['statistics', 'suggestions', 'design_feedback', 'songs']:
             for d in db_admin.collection(coll).stream():
                 if d.id.startswith('__selftest_') or d.id.startswith('__diag') or d.id == 'cualquiercosa':
                     d.reference.delete()
