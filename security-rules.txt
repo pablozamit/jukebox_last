@@ -47,14 +47,40 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
 
-      // Creación inicial del documento (login anónimo): solo arrays vacíos.
+      // Creación inicial del documento (login anónimo o registro inmediato).
+      // Siempre deben existir los dos arrays; el resto son campos de perfil controlados.
       allow create: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.keys().hasOnly(['proposals', 'votes']);
+                    && request.resource.data.keys().hasAll(['proposals', 'votes'])
+                    && request.resource.data.keys().hasOnly([
+                      'proposals', 'votes', 'freeVotes', 'freeProposals', 'lastTriviaAt',
+                      'isRegistered', 'email', 'djName', 'points', 'favorites'
+                    ]);
 
-      // Actualización: solo campos controlados (votos, registro, DJ name, puntos, favoritos,
-      // bonificaciones de trivia y marca de última ronda jugada).
+      // El cliente solo puede editar sus votos/propuestas, favoritos y nombre DJ.
       allow update: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'freeVotes', 'freeProposals', 'lastTriviaAt', 'isRegistered', 'email', 'djName', 'points', 'favorites']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'djName', 'favorites']);
+
+      // Completar el registro después de enlazar la cuenta anónima con email/password.
+      // El email guardado debe coincidir con el email del token de Firebase Auth.
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'isRegistered', 'email', 'djName'])
+                    && request.resource.data.isRegistered == true
+                    && request.resource.data.email == request.auth.token.email;
+
+      // La trivia puede conceder exactamente +1 propuesta y +2 votos una vez cada
+      // 30 minutos. Los puntos y demás campos de servidor no son editables por el cliente.
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['freeProposals', 'freeVotes', 'lastTriviaAt'])
+                    && request.time.toMillis() - resource.data.get('lastTriviaAt', 0) >= 30 * 60 * 1000
+                    && request.resource.data.freeProposals == resource.data.get('freeProposals', 0) + 1
+                    && request.resource.data.freeVotes == resource.data.get('freeVotes', 0) + 2
+                    && request.resource.data.lastTriviaAt >= request.time.toMillis() - 60 * 1000;
+
+      // Perder una ronda solo actualiza la marca de tiempo, con el mismo cooldown.
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastTriviaAt'])
+                    && request.time.toMillis() - resource.data.get('lastTriviaAt', 0) >= 30 * 60 * 1000
+                    && request.resource.data.lastTriviaAt >= request.time.toMillis() - 60 * 1000;
     }
 
     // ============ 5. commands — Solo admins (regla global) ============
@@ -79,8 +105,10 @@ service cloud.firestore {
                     && request.resource.data.kind == 'vote_event';
 
       // Contadores de votos/tiempo: solo los documentos canónicos de la app.
-      allow update: if request.auth != null
-                    && docId.matches('^(votes|time)_(hoy|semana|mes|total)$');
+      // El bridge borra los contadores al comenzar una jornada, así que la primera
+      // votación del día puede ser una CREACIÓN, no solo una actualización.
+      allow create, update: if request.auth != null
+                            && docId.matches('^(votes|time)_(hoy|semana|mes|total)$');
 
       // Limpieza automática de vote_events viejos (>2h): solo esos documentos y solo borrar.
       allow delete: if request.auth != null

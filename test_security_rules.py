@@ -121,11 +121,12 @@ def main():
 
     print("\n== 4. users (solo tu propio doc) ==")
     check("leer mi doc (404 = permitido pero vacío)", [200, 404], api(f"{BASE}/users/{uid}", token=token)[0])
-    check("crear mi doc (arrays vacíos)", [200],
+    check("crear mi doc con perfil DJ (carrera registro/login)", [200],
           api(f"{BASE}/users?documentId={uid}", "POST",
-              {"fields": fields({"proposals": [], "votes": []})}, token)[0])
+              {"fields": fields({"proposals": [], "votes": [], "isRegistered": True,
+                                 "email": EMAIL, "djName": "DJ Selftest"})}, token)[0])
     check("leer doc de OTRO usuario", [403], api(f"{BASE}/users/otro_usuario", token=token)[0])
-    check("guardar favoritos ♥", [200],
+    check("guardar favoritos", [200],
           api(f"{BASE}/users/{uid}?updateMask.fieldPaths=favorites", "PATCH",
               {"fields": fields({"favorites": ["a", "b"]})}, token)[0])
     check("guardar votos", [200],
@@ -136,7 +137,10 @@ def main():
               {"fields": fields({"djName": "DJ Selftest", "isRegistered": True, "email": EMAIL})}, token)[0])
     check("guardar bonificacion trivia (freeProposals+freeVotes+lastTriviaAt)", [200],
           api(f"{BASE}/users/{uid}?updateMask.fieldPaths=freeProposals&updateMask.fieldPaths=freeVotes&updateMask.fieldPaths=lastTriviaAt", "PATCH",
-              {"fields": fields({"freeProposals": 1, "freeVotes": 2, "lastTriviaAt": 1750000000000})}, token)[0])
+              {"fields": fields({"freeProposals": 1, "freeVotes": 2, "lastTriviaAt": int(time.time() * 1000)})}, token)[0])
+    check("fabricar puntos o votos gratis", [403],
+          api(f"{BASE}/users/{uid}?updateMask.fieldPaths=points&updateMask.fieldPaths=freeVotes", "PATCH",
+              {"fields": fields({"points": 9999, "freeVotes": 9999})}, token)[0])
     check("guardar campo hackeado en mi doc", [403],
           api(f"{BASE}/users/{uid}?updateMask.fieldPaths=freeProposals&updateMask.fieldPaths=hacked", "PATCH",
               {"fields": fields({"freeProposals": 1, "hacked": "si"})}, token)[0])

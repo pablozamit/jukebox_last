@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, addDoc, deleteDoc, query, where, getDocs, runTransaction } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
 import { Search, Flame, LogIn, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, Loader2, Heart, Crown } from 'lucide-react';
 import { db, auth } from './firebase';
@@ -18,6 +18,17 @@ gsap.registerPlugin(ScrollTrigger);
 // Canciones del catálogo visibles por bloque: renderizar las 1900+ a la vez
 // bloqueaba el hilo principal ~2s en cada cambio de tema.
 const CATALOG_PAGE_SIZE = 60;
+
+function firebaseErrorMessage(error) {
+  const code = error?.code || '';
+  if (code.includes('permission-denied')) return 'Firebase ha rechazado la operación por permisos. Las reglas de Firestore pueden estar desactualizadas.';
+  if (code.includes('auth/operation-not-allowed')) return 'El método de acceso está desactivado en Firebase Authentication.';
+  if (code.includes('auth/unauthorized-domain')) return 'Este dominio no está autorizado en Firebase Authentication.';
+  if (code.includes('auth/network-request-failed') || code.includes('unavailable')) return 'No se puede conectar con Firebase. Comprueba la red e inténtalo de nuevo.';
+  if (code.includes('failed-precondition')) return 'Firebase necesita una configuración pendiente. Revisa la base de datos o sus índices.';
+  if (code.includes('resource-exhausted')) return 'Firebase ha alcanzado su cuota temporal. Inténtalo de nuevo más tarde.';
+  return 'No se ha podido completar la operación. Inténtalo de nuevo.';
+}
 
 export default function App() {
   const { theme, toggleTheme } = useTheme();
@@ -137,9 +148,14 @@ export default function App() {
         setUserId(user.uid);
         setIsRegistered(!!user.email);
         const userRef = doc(db, 'users', user.uid);
-        const userDoc = await getDoc(userRef);
-        if (!userDoc.exists()) {
-          await setDoc(userRef, { proposals: [], votes: [] });
+        try {
+          const userDoc = await getDoc(userRef);
+          if (!userDoc.exists()) {
+            await setDoc(userRef, { proposals: [], votes: [] });
+          }
+        } catch (error) {
+          console.error('Firebase user initialization error:', error);
+          toast(`Perfil: ${firebaseErrorMessage(error)}`, 'error');
         }
         unsubUser = onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
@@ -148,6 +164,9 @@ export default function App() {
             setUserVotes(data.votes || []);
             setUserData(data);
           }
+        }, (error) => {
+          console.error('Firebase user listener error:', error);
+          toast(`Perfil: ${firebaseErrorMessage(error)}`, 'error');
         });
       } else {
         setUserId(null);
@@ -161,23 +180,29 @@ export default function App() {
       unsubscribe();
       if (unsubUser) unsubUser();
     };
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     const stateRef = doc(db, 'state', 'nowPlaying');
     const unsubscribe = onSnapshot(stateRef, (docSnap) => {
       if (docSnap.exists()) setNowPlaying(docSnap.data());
+    }, (error) => {
+      console.error('Firebase nowPlaying listener error:', error);
+      toast(`Reproducción: ${firebaseErrorMessage(error)}`, 'error');
     });
     return () => unsubscribe();
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     const cooldownsRef = doc(db, 'state', 'cooldowns');
     const unsubscribe = onSnapshot(cooldownsRef, (docSnap) => {
       if (docSnap.exists()) setCooldowns(docSnap.data());
+    }, (error) => {
+      console.error('Firebase cooldown listener error:', error);
+      toast(`Cola: ${firebaseErrorMessage(error)}`, 'error');
     });
     return () => unsubscribe();
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(Date.now()), 10000);
@@ -193,9 +218,13 @@ export default function App() {
         localStorage.setItem('jukebox-catalog-v2', JSON.stringify(songs));
       }
       setLoading(false);
+    }, (error) => {
+      console.error('Firebase catalog listener error:', error);
+      setLoading(false);
+      toast(`Catálogo: ${firebaseErrorMessage(error)}`, 'error');
     });
     return () => unsubscribe();
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     const songsRef = collection(db, 'songs');
@@ -203,9 +232,12 @@ export default function App() {
       const queueMap = {};
       snapshot.docs.forEach(doc => { queueMap[doc.id] = doc.data(); });
       setActiveQueue(queueMap);
+    }, (error) => {
+      console.error('Firebase songs listener error:', error);
+      toast(`Cola: ${firebaseErrorMessage(error)}`, 'error');
     });
     return () => unsubscribe();
-  }, []);
+  }, [toast]);
 
   // Usuarios activos: lo calcula y escribe el bridge en state/active_users.
   // Así la app no necesita leer toda la colección 'users' (las reglas de seguridad solo permiten leer tu propio doc).
@@ -213,6 +245,8 @@ export default function App() {
     const activeRef = doc(db, 'state', 'active_users');
     const unsubscribe = onSnapshot(activeRef, (docSnap) => {
       setActiveUsersCount(docSnap.exists() ? (docSnap.data().count || 0) : 0);
+    }, (error) => {
+      console.error('Firebase active users listener error:', error);
     });
     return () => unsubscribe();
   }, []);
@@ -429,42 +463,63 @@ export default function App() {
     // Registro optimista: evita notificarte a ti mismo tu propio voto
     ownVoteRef.current = { songId: song.id, at: new Date().getTime() };
     lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
-    // Evento público de voto: permite notificar al proponente con tu nombre de DJ
-    addDoc(collection(db, 'statistics'), {
-      kind: 'vote_event',
-      songId: song.id,
-      title: song.title,
-      type: isProposal ? 'proposal' : 'vote',
-      voterName: djDisplayName,
-      ts: new Date().getTime(),
-    })
-      .then(() => {
-        // Limpieza best-effort: borra eventos viejos de esta canción (más de 2h)
-        const cutoff = new Date().getTime() - 2 * 60 * 60 * 1000;
-        getDocs(query(collection(db, 'statistics'), where('songId', '==', song.id)))
-          .then((snap) => {
-            snap.docs
-              .filter(d => d.data().kind === 'vote_event' && (d.data().ts || 0) < cutoff)
-              .forEach(d => deleteDoc(d.ref));
-          })
-          .catch(() => {});
-      })
-      .catch(() => {});
     try {
-      const userRef = doc(db, 'users', userId);
-      if (isProposal) {
-        await setDoc(userRef, { proposals: [...userProposals, song.id] }, { merge: true });
-      } else {
-        await setDoc(userRef, { votes: [...userVotes, song.id] }, { merge: true });
-      }
-      const songRef = doc(db, 'songs', song.id);
       const votedAt = new Date().getTime();
-      await setDoc(songRef, {
+      const userRef = doc(db, 'users', userId);
+      const songRef = doc(db, 'songs', song.id);
+
+      // Usuario y canción forman una sola operación lógica. Si una de las dos
+      // escrituras falla, la transacción revierte ambas y no se consume el voto.
+      await runTransaction(db, async (transaction) => {
+        const [userSnap, songSnap] = await Promise.all([
+          transaction.get(userRef),
+          transaction.get(songRef),
+        ]);
+        const currentUser = userSnap.exists() ? userSnap.data() : {};
+        const currentProposals = currentUser.proposals || [];
+        const currentVotes = currentUser.votes || [];
+        const nextUserValues = {
+          proposals: isProposal ? [...currentProposals, song.id] : currentProposals,
+          votes: isProposal ? currentVotes : [...currentVotes, song.id],
+        };
+        transaction.set(userRef, nextUserValues, { merge: true });
+
+        if (songSnap.exists()) {
+          transaction.update(songRef, {
+            votes: (songSnap.data().votes || 0) + 1,
+            ...(isProposal ? { proposerName: djDisplayName } : {}),
+          });
+        } else {
+          transaction.set(songRef, {
+            title: song.title,
+            votes: 1,
+            firstVotedAt: votedAt,
+            ...(isProposal ? { proposerName: djDisplayName } : {}),
+          });
+        }
+      });
+
+      // Solo anunciar el voto después de confirmar usuario y canción.
+      addDoc(collection(db, 'statistics'), {
+        kind: 'vote_event',
+        songId: song.id,
         title: song.title,
-        votes: increment(1),
-        firstVotedAt: isProposal ? votedAt : (activeQueue[song.id]?.firstVotedAt || votedAt),
-        ...(isProposal ? { proposerName: djDisplayName } : {})
-      }, { merge: true });
+        type: isProposal ? 'proposal' : 'vote',
+        voterName: djDisplayName,
+        ts: new Date().getTime(),
+      })
+        .then(() => {
+          const cutoff = new Date().getTime() - 2 * 60 * 60 * 1000;
+          getDocs(query(collection(db, 'statistics'), where('songId', '==', song.id)))
+            .then((snap) => {
+              snap.docs
+                .filter(d => d.data().kind === 'vote_event' && (d.data().ts || 0) < cutoff)
+                .forEach(d => deleteDoc(d.ref));
+            })
+            .catch(() => {});
+        })
+        .catch((error) => console.error('Firebase vote event error:', error));
+
       const now = new Date();
       let hour = now.getHours();
       let day = now.getDay();
@@ -473,6 +528,8 @@ export default function App() {
       const songIncrement = { [song.id]: increment(1) };
       const hourKey = hour.toString();
       const dayKey = day.toString();
+      // Las estadísticas son auxiliares: un fallo de permisos o cuota no debe
+      // invalidar una propuesta/voto que ya se ha guardado correctamente.
       await Promise.all([
         setDoc(doc(statsRef, 'votes_hoy'), songIncrement, { merge: true }),
         setDoc(doc(statsRef, 'votes_semana'), songIncrement, { merge: true }),
@@ -480,7 +537,10 @@ export default function App() {
         setDoc(doc(statsRef, 'votes_total'), songIncrement, { merge: true }),
         setDoc(doc(statsRef, 'time_hoy'), { [hourKey]: increment(1) }, { merge: true }),
         setDoc(doc(statsRef, 'time_semana'), { [dayKey]: increment(1) }, { merge: true })
-      ]);
+      ]).catch((error) => {
+        console.error('Firebase stats update error:', error);
+        toast(`Voto guardado, pero estadísticas: ${firebaseErrorMessage(error)}`, 'info');
+      });
       setLastVotedSongId(song.id);
       animateVote(song.id);
     } catch (error) {
@@ -503,11 +563,16 @@ export default function App() {
         await signInAnonymously(auth);
         currentUser = auth.currentUser;
       }
-      const credential = EmailAuthProvider.credential(regEmail, regPassword);
-      await linkWithCredential(currentUser, credential);
-      await setDoc(doc(db, 'users', auth.currentUser.uid), {
+      const credential = EmailAuthProvider.credential(regEmail.trim(), regPassword);
+      const linkedCredential = await linkWithCredential(currentUser, credential);
+      const registeredUser = linkedCredential.user;
+      await setDoc(doc(db, 'users', registeredUser.uid), {
+        // Incluir los arrays también permite que el registro gane una carrera
+        // contra la inicialización anónima del documento.
+        proposals: userProposals,
+        votes: userVotes,
         isRegistered: true,
-        email: regEmail,
+        email: regEmail.trim(),
         djName: djNameClean.slice(0, 20),
       }, { merge: true });
       setShowRegister(false);
@@ -518,8 +583,11 @@ export default function App() {
       if (error.code === 'auth/email-already-in-use' || error.code === 'auth/credential-already-in-use') {
         setAuthMode('login');
         setAuthErrorMsg(t.registerEmailInUse);
+      } else if (error.code === 'auth/invalid-email') {
+        setAuthErrorMsg(t.invalidEmail);
       } else {
-        setAuthErrorMsg(error.code === 'auth/weak-password' ? t.weakPassword : error.message);
+        console.error('Firebase registration error:', error);
+        setAuthErrorMsg(firebaseErrorMessage(error));
       }
     }
   };
@@ -528,13 +596,18 @@ export default function App() {
     e.preventDefault();
     setAuthErrorMsg('');
     try {
-      await signInWithEmailAndPassword(auth, regEmail, regPassword);
+      await signInWithEmailAndPassword(auth, regEmail.trim(), regPassword);
       setShowLogin(false);
       setShowRegister(false);
       setIsRegistered(true);
       toast(t.loginSuccess, 'success');
-    } catch {
-      setAuthErrorMsg(t.wrongCredentials);
+    } catch (error) {
+      console.error('Firebase login error:', error);
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        setAuthErrorMsg(t.wrongCredentials);
+      } else {
+        setAuthErrorMsg(firebaseErrorMessage(error));
+      }
     }
   };
 
