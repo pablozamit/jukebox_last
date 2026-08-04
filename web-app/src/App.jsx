@@ -132,6 +132,9 @@ export default function App() {
   }, [lang]);
 
   const currentTimestamp = currentTime;
+  const isBridgeActive = nowPlaying?.lastActive
+    ? (currentTimestamp - nowPlaying.lastActive < 300000)
+    : false;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -713,8 +716,6 @@ export default function App() {
     const s = Math.floor(seconds % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
   };
-
-  const isBridgeActive = nowPlaying?.lastActive ? (currentTimestamp - nowPlaying.lastActive < 300000) : false;
 
   const checkIsStaffHours = () => {
     const now = new Date(currentTime);
