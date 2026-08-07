@@ -49,8 +49,7 @@ def clean_title(filename):
 def sync_local_files():
     search_path = os.path.join(VIDEO_FOLDER_PATH, "*.mp4")
     local_filenames = [os.path.basename(f) for f in glob.glob(search_path)]
-   
-    # Empaquetar todo el catálogo en una sola lista para el Documento Único
+
     catalog_list = []
     for fname in local_filenames:
         catalog_list.append({
@@ -58,8 +57,7 @@ def sync_local_files():
             'title': clean_title(fname),
             'available': True
         })
-   
-    # Guardar la lista entera en 1 sola operación/documento
+
     db.collection('catalog').document('full_list').set({'songs': catalog_list})
     print(f"Catálogo sincronizado: {len(catalog_list)} canciones guardadas en 1 solo documento.")
     return local_filenames
@@ -70,38 +68,32 @@ async def clear_all_data(session_start=None):
         print(" [SISTEMA] Realizando limpieza de nueva jornada...")
         batch = db.batch()
         count = 0
-        
-        # 1. Borrar todos los documentos de la cola de canciones
+
         songs_ref = db.collection('songs').stream()
         for song in songs_ref:
             batch.delete(song.reference)
             count += 1
             if count >= 400:
                 batch.commit(); batch = db.batch(); count = 0
-        
-        # 2. Resetear propuestas y votos de TODOS los usuarios
+
         users_ref = db.collection('users').stream()
         for user in users_ref:
             batch.update(user.reference, {'proposals': [], 'votes': []})
             count += 1
             if count >= 400:
                 batch.commit(); batch = db.batch(); count = 0
-        
-        # 3. Limpiar el documento de cooldowns (bloqueos de 1 hora)
+
         batch.delete(db.collection('state').document('cooldowns'))
         count += 1
-        
-        # 4. Limpieza de Estadísticas
+
         now = datetime.now()
         stats_ref = db.collection('statistics')
 
-        # Siempre limpiar "Hoy"
         batch.delete(stats_ref.document('plays_hoy'))
         batch.delete(stats_ref.document('votes_hoy'))
         batch.delete(stats_ref.document('time_hoy'))
         count += 3
 
-        # Lunes: Limpiar "Semana"
         if now.weekday() == 0:
             batch.delete(stats_ref.document('plays_semana'))
             batch.delete(stats_ref.document('votes_semana'))
@@ -109,11 +101,9 @@ async def clear_all_data(session_start=None):
             batch.delete(db.collection('leaderboard').document('semana'))
             count += 4
 
-        # 5. DJ de la noche: reset del leaderboard diario
         batch.delete(db.collection('leaderboard').document('noche'))
         count += 1
 
-        # Día 1: Limpiar "Mes"
         if now.day == 1:
             batch.delete(stats_ref.document('plays_mes'))
             batch.delete(stats_ref.document('votes_mes'))
@@ -163,15 +153,13 @@ async def check_for_new_session():
 async def reset_song_and_tokens(filename):
     """Limpieza de votos y tokens + puntos y leaderboard (DJ de la noche/semana)."""
     try:
-        # Borramos el documento de la cola en lugar de ponerlo a 0, para no acumular basura
         db.collection('songs').document(filename).delete()
-       
+
         users_ref = db.collection('users')
         batch = db.batch()
         c = 0
         affected = []  # (uid, name, pts)
 
-        # 1. Liberar el token de "Propuestas" a quienes la añadieron (+10 pts)
         prop_docs = users_ref.where("proposals", "array_contains", filename).stream()
         for udoc in prop_docs:
             batch.update(udoc.reference, {'proposals': firestore.ArrayRemove([filename])})
@@ -181,7 +169,6 @@ async def reset_song_and_tokens(filename):
                 batch.commit(); batch = db.batch(); c = 0
         proposer_ids = {uid for uid, _, _ in affected}
 
-        # 2. Liberar el token de "Votos" a quienes la votaron (+5 pts, sin duplicar)
         vote_docs = users_ref.where("votes", "array_contains", filename).stream()
         for udoc in vote_docs:
             if udoc.id not in proposer_ids:
@@ -190,10 +177,9 @@ async def reset_song_and_tokens(filename):
                 c += 1
                 if c >= 400:
                     batch.commit(); batch = db.batch(); c = 0
-               
+
         if c > 0: batch.commit()
 
-        # 3. Puntos, noches visitadas y leaderboard (fuera del batch)
         try:
             today = datetime.now().strftime('%Y-%m-%d')
             night_ref = db.collection('leaderboard').document('noche')
@@ -226,14 +212,12 @@ def safe_video_path(filename):
         return None
     return candidate
 
-
 async def play_song_on_kodi(ws, filename, current_playing_file):
     if playback_lock.locked():
         logger.info("Reproducción ya en curso; se ignora la solicitud duplicada: %s", filename)
         return False
     async with playback_lock:
         return await _play_song_on_kodi(ws, filename, current_playing_file)
-
 
 async def _play_song_on_kodi(ws, filename, current_playing_file):
     video_path = safe_video_path(filename)
@@ -245,9 +229,6 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
     command_id = f"play:{filename}:{time.time_ns()}"
     payload = {"jsonrpc": "2.0", "method": "Player.Open", "params": { "item": { "file": filepath } }, "id": command_id}
 
-    # Solo main() lee del WebSocket. Las demás tareas esperan una future que
-    # main() resuelve al recibir la respuesta JSON-RPC; websockets no admite dos
-    # lectores concurrentes.
     loop = asyncio.get_running_loop()
     response_future = loop.create_future()
     pending_kodi_requests[command_id] = response_future
@@ -266,7 +247,7 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
 
     current_playing_file[0] = filename
     await reset_song_and_tokens(filename)
-   
+
     db.collection('state').document('nowPlaying').set({
         'songId': filename,
         'title': clean_title(filename),
@@ -274,7 +255,7 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
         'totalTime': 0,
         'lastActive': int(time.time() * 1000)
     })
-    db.collection('state').document('cooldowns').set({filename: int(time.time() * 1000)}, merge=True)    # Registro de estadísticas de reproducción
+    db.collection('state').document('cooldowns').set({filename: int(time.time() * 1000)}, merge=True)
     try:
         stats_ref = db.collection('statistics')
         increment_data = {filename: firestore.Increment(1)}
@@ -285,7 +266,6 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
     except Exception as e:
         print(f" Error actualizando estadísticas de reproducción: {e}")
 
-    # Historial de últimas canciones sonadas (para la pantalla de la app)
     try:
         hist_ref = db.collection('state').document('played_history')
         hist_doc = hist_ref.get()
@@ -331,11 +311,9 @@ async def progress_tracker(ws, current_playing_file):
             if current_playing_file[0]:
                 await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetProperties", "params": {"playerid": 1, "properties": ["time", "totaltime"]}, "id": "progress"}))
             else:
-                # Si no hay nada sonando, igual actualizamos lastActive para que la web sepa que el puente vive
                 db.collection('state').document('nowPlaying').set({'lastActive': int(time.time() * 1000)}, merge=True)
         except Exception as e:
             report_error("Error siguiendo progreso de Kodi", e)
-        # Frecuencia reducida a 5 segundos (Plan Blaze)
         await asyncio.sleep(5)
 
 def aggregate_vote_event(event_ref, session_key, session_start):
@@ -348,8 +326,6 @@ def aggregate_vote_event(event_ref, session_key, session_start):
     if data.get('countedSession') == session_key or event_ts < session_start:
         return False
 
-    # Segunda barrera de servidor: el cliente no puede falsear título/nombre
-    # aunque el documento haya pasado las reglas estructurales.
     user_snapshot = db.collection('users').document(data.get('userId', '')).get()
     song_snapshot = db.collection('catalog').document('full_list').get()
     if not user_snapshot.exists or not song_snapshot.exists:
@@ -359,7 +335,7 @@ def aggregate_vote_event(event_ref, session_key, session_start):
     user_data = user_snapshot.to_dict() or {}
     expected_name = user_data.get('djName') or 'ANONYMOUS'
     catalog_song = next((song for song in (song_snapshot.to_dict() or {}).get('songs', [])
-                         if song.get('id') == data.get('songId')), None)
+                          if song.get('id') == data.get('songId')), None)
     if not catalog_song or catalog_song.get('title') != data.get('title') or data.get('voterName') != expected_name:
         logger.warning('Evento descartado por metadatos incoherentes: %s', event_ref.id)
         event_ref.delete()
@@ -381,8 +357,8 @@ def aggregate_vote_event(event_ref, session_key, session_start):
 
     @firestore.transactional
     def apply_event(tx):
-        current = tx.get(event_ref)
-        current_data = current.to_dict() or {}
+        current = next(tx.get(event_ref), None)
+        current_data = current.to_dict() if current else {}
         if current_data.get('countedSession') == session_key:
             return False
         tx.set(stats_ref.document('votes_hoy'), increment_data, merge=True)
@@ -399,16 +375,11 @@ def aggregate_vote_event(event_ref, session_key, session_start):
 
     return apply_event(transaction)
 
-
 async def vote_events_writer(session_start):
     """Agrega eventos confirmados por la web a las estadísticas protegidas."""
     session_key = str(session_start)
     while True:
         try:
-            # No dependemos de un índice compuesto kind+ts. Ordenamos en
-            # memoria, descartamos eventos de jornadas anteriores y limpiamos
-            # eventos ya procesados antes de limitar el lote.
-            # Limpieza de la colección antigua de eventos tras la migración.
             for legacy_event in db.collection('statistics').stream():
                 if (legacy_event.to_dict() or {}).get('kind') == 'vote_event':
                     legacy_event.reference.delete()
@@ -433,7 +404,6 @@ async def vote_events_writer(session_start):
             report_error("Error leyendo eventos de voto", e)
         await asyncio.sleep(3)
 
-
 async def bridge_status_writer(current_playing_file, session_start):
     """Publica un heartbeat para diagnóstico desde el panel y la web."""
     status_ref = db.collection('state').document('bridgeStatus')
@@ -452,7 +422,6 @@ async def bridge_status_writer(current_playing_file, session_start):
         except Exception as e:
             report_error("Error publicando heartbeat", e)
         await asyncio.sleep(15)
-
 
 async def active_users_writer():
     """Escribe cada 15s el número de usuarios con canciones activas en la cola.
@@ -498,11 +467,10 @@ async def main():
         connection_tasks.add(task)
         task.add_done_callback(connection_tasks.discard)
         return task
-    
-    # Comprobar si es necesario resetear datos por nueva jornada
+
     await check_for_new_session()
     session_start = session_start_ms()
-    
+
     uri = f"ws://{KODI_USER}:{KODI_PASS}@{KODI_IP}:{KODI_PORT}/jsonrpc"
     async with websockets.connect(uri) as ws:
         print("Conectado a Kodi.")
@@ -547,11 +515,10 @@ async def main():
                         'totalTime': tot,
                         'lastActive': int(time.time() * 1000)
                     })
-        # No dejamos tareas asociadas al socket anterior al reconectar.
-        for task in connection_tasks:
-            task.cancel()
-        if connection_tasks:
-            await asyncio.gather(*connection_tasks, return_exceptions=True)
+    for task in connection_tasks:
+        task.cancel()
+    if connection_tasks:
+        await asyncio.gather(*connection_tasks, return_exceptions=True)
 
 async def run_forever():
     while True:
@@ -560,9 +527,6 @@ async def run_forever():
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            # El websocket puede fallar mientras las tareas auxiliares esperan
-            # Firebase o una respuesta JSON-RPC. Cancelarlas aquí evita que
-            # sobrevivan a la siguiente conexión.
             for task in list(active_connection_tasks):
                 task.cancel()
             if active_connection_tasks:
@@ -581,7 +545,6 @@ async def run_forever():
                 })
             except Exception as status_error:
                 report_error("No se pudo publicar estado desconectado", status_error)
-            await asyncio.sleep(5)
-
+        await asyncio.sleep(5)
 
 if __name__ == "__main__": asyncio.run(run_forever())
