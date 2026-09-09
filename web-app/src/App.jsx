@@ -84,6 +84,7 @@ export default function App() {
   const [themeSwitching, setThemeSwitching] = useState(false);
   const themeSwitchingRef = useRef(false);
   const lastPlayedSongRef = useRef(null);
+  const playingBannerHideTimerRef = useRef(null);
   const prevThemeRef = useRef(theme);
   const surveyTimerRef = useRef(null);
 
@@ -634,6 +635,14 @@ export default function App() {
     signInAnonymously(auth).catch(console.error);
   };
 
+  const closePlayingBanner = () => {
+    if (playingBannerHideTimerRef.current) {
+      window.clearTimeout(playingBannerHideTimerRef.current);
+      playingBannerHideTimerRef.current = null;
+    }
+    setShowPlayingBanner(false);
+  };
+
   useEffect(() => {
     if (!nowPlaying || !userId) return undefined;
     const title = nowPlaying.title;
@@ -641,19 +650,35 @@ export default function App() {
     const eventKey = songId || title;
     if (!title || eventKey === lastPlayedSongRef.current) return undefined;
     lastPlayedSongRef.current = eventKey;
+    // Canción distinta: oculto el banner anterior y cancelo su timer de ocultado
+    if (playingBannerHideTimerRef.current) {
+      window.clearTimeout(playingBannerHideTimerRef.current);
+      playingBannerHideTimerRef.current = null;
+    }
+    setShowPlayingBanner(false);
     const isProposed = (userData?.proposals || []).includes(songId) || (userData?.proposals || []).includes(title);
     const isVoted = (userData?.votes || []).includes(songId) || (userData?.votes || []).includes(title);
     if (!isProposed && !isVoted) return undefined;
     const showTimer = window.setTimeout(() => {
       setPlayingBannerData({ title, songId, isProposed, isVoted });
       setShowPlayingBanner(true);
+      // El timer de ocultado vive en una ref: las actualizaciones de progreso
+      // del bridge (misma canción) no lo cancelan. Se programa UNA vez por canción.
+      playingBannerHideTimerRef.current = window.setTimeout(() => {
+        playingBannerHideTimerRef.current = null;
+        setShowPlayingBanner(false);
+      }, 8000);
     }, 0);
-    const hideTimer = window.setTimeout(() => setShowPlayingBanner(false), 8000);
-    return () => {
-      window.clearTimeout(showTimer);
-      window.clearTimeout(hideTimer);
-    };
+    return () => window.clearTimeout(showTimer);
   }, [nowPlaying, userId, userData, catalog]);
+
+  // Limpieza al desmontar: evita setState después de unmount
+  useEffect(() => () => {
+    if (playingBannerHideTimerRef.current) {
+      window.clearTimeout(playingBannerHideTimerRef.current);
+      playingBannerHideTimerRef.current = null;
+    }
+  }, []);
 
   const validateYoutubeUrl = (url) => {
     return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(url);
@@ -1546,9 +1571,16 @@ export default function App() {
       {showPlayingBanner && playingBannerData && (
         <div className={isCatrina ? 'jukebox-playing-banner' : 'fixed top-16 left-0 right-0 z-[90] flex justify-center px-4 animate-bounce'}>
           <div className={isCatrina
-            ? 'px-6 py-4 max-w-sm w-full text-center'
-            : 'bg-gradient-to-r from-brand-neon-purple/20 to-brand-neon-green/20 border border-brand-neon-purple/40 rounded-2xl px-6 py-4 max-w-sm w-full text-center shadow-[0_0_30px_rgba(176,38,255,0.2)]'
+            ? 'relative px-6 py-4 max-w-sm w-full text-center'
+            : 'relative bg-gradient-to-r from-brand-neon-purple/20 to-brand-neon-green/20 border border-brand-neon-purple/40 rounded-2xl px-6 py-4 max-w-sm w-full text-center shadow-[0_0_30px_rgba(176,38,255,0.2)]'
           }>
+            <button
+              onClick={closePlayingBanner}
+              aria-label="Cerrar aviso de canción sonando"
+              className={`absolute top-2 right-2 transition-colors ${isCatrina ? 'text-brand-gold/70 hover:text-brand-gold' : 'text-zinc-400 hover:text-white'}`}
+            >
+              <X size={16} />
+            </button>
             <p className={`font-bold text-sm flex items-center justify-center gap-2 ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-green'}`}>
               <Disc3 size={18} className="animate-spin" /> {t.yourSongPlaying}
             </p>
