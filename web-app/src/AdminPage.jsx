@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, deleteDoc, getDocs, getDoc, FieldValue } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, deleteDoc, getDocs, getDoc, serverTimestamp } from 'firebase/firestore';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { Flame, Play, SkipForward, EyeOff, Eye, ArrowLeft, Trash2, Search, X, ArrowUp, Disc3, Music2, LogOut } from 'lucide-react';
 import { db, auth } from './firebase';
@@ -169,7 +169,7 @@ export default function AdminPage() {
         await setDoc(songRef, {
           title: song.title,
           votes: numVotes,
-          firstVotedAt: song.firstVotedAt || FieldValue.serverTimestamp()
+          firstVotedAt: song.firstVotedAt || serverTimestamp()
         }, { merge: true });
       }
     } catch (error) {

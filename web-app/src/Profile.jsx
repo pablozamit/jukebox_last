@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateDoc, doc, FieldValue } from 'firebase/firestore';
+import { updateDoc, doc, increment } from 'firebase/firestore';
 import { X, Gift, Trophy, Music, Calendar, TrendingUp, Star } from 'lucide-react';
 import { db } from './firebase';
 import { useTheme } from './ThemeContext';
@@ -102,8 +102,8 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
     setExchanging(true);
     try {
       await updateDoc(doc(db, 'users', userId), { 
-        points: FieldValue.increment(-EXCHANGE_COST), 
-        freeVotes: FieldValue.increment(1) 
+        points: increment(-EXCHANGE_COST), 
+        freeVotes: increment(1) 
       });
       setExchangeMsg(t.exchangeSuccess);
     } catch { setExchangeMsg(t.authErrorGeneric); }

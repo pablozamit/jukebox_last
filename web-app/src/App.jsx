@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { collection, collectionGroup, onSnapshot, doc, getDoc, setDoc, addDoc, query, where, limit, runTransaction, FieldValue } from 'firebase/firestore';
+import { collection, collectionGroup, onSnapshot, doc, getDoc, setDoc, addDoc, query, where, limit, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { resolveSongId } from './appLogic';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
 import { Search, Flame, LogIn, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, Loader2, Heart, Crown } from 'lucide-react';
@@ -47,7 +47,7 @@ export default function App() {
       try {
         const tempRef = doc(db, 'serverTime', 'offset');
         // Write a temporary document with server timestamp
-        await setDoc(tempRef, { serverTimestamp: FieldValue.serverTimestamp() });
+        await setDoc(tempRef, { serverTimestamp: serverTimestamp() });
         const docSnap = await getDoc(tempRef);
         if (docSnap.exists()) {
           const serverTime = docSnap.data().serverTimestamp.toMillis();
@@ -423,7 +423,7 @@ export default function App() {
         preference,
         theme: 'neon',
         userId: userId || 'anonymous',
-        timestamp: FieldValue.serverTimestamp(),
+        timestamp: serverTimestamp(),
       });
     } catch {
       console.error('Survey save error');
@@ -511,7 +511,7 @@ export default function App() {
     ownVoteRef.current = { songId: song.id, at: getServerTime() };
     lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
     try {
-      const votedAt = FieldValue.serverTimestamp();
+      const votedAt = serverTimestamp();
       const userRef = doc(db, 'users', userId);
       const songRef = doc(db, 'songs', song.id);
 
