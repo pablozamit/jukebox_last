@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, runTransaction } from 'firebase/firestore';
 import { X } from 'lucide-react';
 import { db } from './firebase';
 import { useTheme } from './ThemeContext';
@@ -80,7 +80,7 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
     if (roundConsumedRef.current) return;
     roundConsumedRef.current = true;
     setPhase('revealed');
-    const triviaTimestamp = serverTimestamp();
+    const triviaTimestamp = Math.round(getServerTime());
     const userRef = doc(db, 'users', userId);
     runTransaction(db, async (transaction) => {
       const userSnap = await transaction.get(userRef);

@@ -595,7 +595,7 @@ export default function App() {
           title: song.title,
           type: effectiveIsProposal ? 'proposal' : 'vote',
           voterName: userData?.djName?.trim() || 'ANONYMOUS',
-          ts: votedAt,
+          ts: Math.round(getServerTime()),
         });
       });
 
