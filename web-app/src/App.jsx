@@ -19,6 +19,11 @@ gsap.registerPlugin(ScrollTrigger);
 // Canciones del catálogo visibles por bloque: renderizar las 1900+ a la vez
 // bloqueaba el hilo principal ~2s en cada cambio de tema.
 const CATALOG_PAGE_SIZE = 60;
+const GUEST_MAX_PROPOSALS = 3;
+const REGISTERED_MAX_PROPOSALS = 6;
+const GUEST_MAX_VOTES = 5;
+const REGISTERED_MAX_VOTES = 10;
+
 
 function firebaseErrorMessage(error) {
   const code = error?.code || '';
@@ -472,20 +477,7 @@ export default function App() {
       toast(t.authError, 'error');
       return;
     }
-    const isProposal = song.votes === 0;
-    if (isProposal) {
-      if (userProposals.length >= MAX_PROPOSALS) {
-        if (!isRegistered) setShowOutTokenCTA(true);
-        else toast(t.alreadyVoted, 'info');
-        return;
-      }
-    } else {
-      if (userVotes.length >= MAX_VOTES) {
-        if (!isRegistered) setShowOutTokenCTA(true);
-        else toast(t.alreadyVoted, 'info');
-        return;
-      }
-    }
+
     // Registro optimista: evita notificarte a ti mismo tu propio voto
     ownVoteRef.current = { songId: song.id, at: new Date().getTime() };
     lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
@@ -504,12 +496,30 @@ export default function App() {
         const currentUser = userSnap.exists() ? userSnap.data() : {};
         const currentProposals = currentUser.proposals || [];
         const currentVotes = currentUser.votes || [];
+        const userIsRegistered = currentUser.isRegistered || false;
+
+        const actualMaxProposals = userIsRegistered ? REGISTERED_MAX_PROPOSALS : GUEST_MAX_PROPOSALS;
+        const actualMaxVotes = userIsRegistered ? REGISTERED_MAX_VOTES : GUEST_MAX_VOTES;
 
         let finalProposals = [...currentProposals];
         let finalVotes = [...currentVotes];
         let shouldIncrementSongVote = false;
 
         const effectiveIsProposal = !songSnap.exists();
+
+        // --- TOKEN LIMIT CHECK --- (Server-side validation)
+        if (effectiveIsProposal) {
+            if (currentProposals.length >= actualMaxProposals) {
+                // User has reached proposal limit, abort transaction
+                throw new Error(t.proposalLimitReached);
+            }
+        } else { // It's a vote
+            if (currentVotes.length >= actualMaxVotes) {
+                // User has reached vote limit, abort transaction
+                throw new Error(t.voteLimitReached);
+            }
+        }
+        // --- END TOKEN LIMIT CHECK ---
 
         if (effectiveIsProposal) {
             if (finalProposals.includes(song.id)) {
@@ -566,7 +576,17 @@ export default function App() {
       animateVote(song.id);
     } catch (error) {
       lastVoteCountsRef.current[song.id] = activeQueue[song.id]?.votes || 0;
-      toast(t.firebaseError + error.message, 'error');
+      let errorMessage = t.firebaseError + error.message;
+      if (error.message === "Proposal limit reached.") {
+        errorMessage = t.proposalLimitReached;
+      } else if (error.message === "Vote limit reached.") {
+        errorMessage = t.voteLimitReached;
+      } else if (error.message === "Already proposed this song." || error.message === "Already voted for this song.") {
+        // These errors are from the idempotency check in the transaction, but should ideally be caught by the UI
+        // Fallback if UI check fails
+        errorMessage = t.alreadyVoted;
+      }
+      toast(errorMessage, 'error');
     }
   };
 

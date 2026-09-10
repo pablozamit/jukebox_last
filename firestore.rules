@@ -45,6 +45,15 @@ service cloud.firestore {
 
     // ============ 4. users — Cada usuario solo lee/escribe SU propio documento ============
     match /users/{userId} {
+      // Max limits for proposals (3 for guest, 6 for registered)
+      function maxProposals(userDoc) {
+        return userDoc.get('isRegistered', false) ? 6 : 3;
+      }
+      // Max limits for votes (5 for guest, 10 for registered)
+      function maxVotes(userDoc) {
+        return userDoc.get('isRegistered', false) ? 10 : 5;
+      }
+
       allow read: if request.auth != null && request.auth.uid == userId;
 
       // Creación inicial del documento (login anónimo o registro inmediato).
@@ -56,9 +65,39 @@ service cloud.firestore {
                         || (request.resource.data.isRegistered == true
                             && request.resource.data.email == request.auth.token.email));
 
-      // El cliente solo puede editar sus votos/propuestas, favoritos y nombre DJ.
+      // [NUEVO] Permitir al usuario actualizar djName o favorites (solos o juntos)
       allow update: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'djName', 'favorites']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['djName', 'favorites']);
+
+      // [NUEVO] Permitir al usuario añadir UNA propuesta
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.proposals is list
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals'])
+                    && request.resource.data.proposals.size() == resource.data.proposals.size() + 1
+                    && request.resource.data.proposals.hasAll(resource.data.proposals) // Todos los antiguos deben estar en el nuevo
+                    && request.resource.data.proposals.size() <= maxProposals(resource.data);
+
+      // [NUEVO] Permitir al usuario quitar UNA propuesta
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.proposals is list
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals'])
+                    && request.resource.data.proposals.size() == resource.data.proposals.size() - 1
+                    && resource.data.proposals.hasAll(request.resource.data.proposals); // Los nuevos deben ser un subconjunto de los antiguos
+
+      // [NUEVO] Permitir al usuario añadir UN voto
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.votes is list
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
+                    && request.resource.data.votes.size() == resource.data.votes.size() + 1
+                    && request.resource.data.votes.size() <= maxVotes(resource.data)
+                    && request.resource.data.votes.hasAll(resource.data.votes); // Todos los antiguos deben estar en el nuevo
+
+      // [NUEVO] Permitir al usuario quitar UN voto
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.votes is list
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
+                    && request.resource.data.votes.size() == resource.data.votes.size() - 1
+                    && resource.data.votes.hasAll(request.resource.data.votes); // Los nuevos deben ser un subconjunto de los antiguos
 
       // Completar el registro después de enlazar la cuenta anónima con email/password.
       // El email guardado debe coincidir con el email del token de Firebase Auth.
