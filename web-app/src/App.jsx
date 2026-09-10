@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { collection, collectionGroup, onSnapshot, doc, getDoc, setDoc, addDoc, query, where, limit, runTransaction } from 'firebase/firestore';
+import { collection, collectionGroup, onSnapshot, doc, getDoc, setDoc, addDoc, query, where, limit, runTransaction, FieldValue } from 'firebase/firestore';
 import { resolveSongId } from './appLogic';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
 import { Search, Flame, LogIn, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, Loader2, Heart, Crown } from 'lucide-react';
@@ -19,6 +19,11 @@ gsap.registerPlugin(ScrollTrigger);
 // Canciones del catálogo visibles por bloque: renderizar las 1900+ a la vez
 // bloqueaba el hilo principal ~2s en cada cambio de tema.
 const CATALOG_PAGE_SIZE = 60;
+const GUEST_MAX_PROPOSALS = 3;
+const REGISTERED_MAX_PROPOSALS = 6;
+const GUEST_MAX_VOTES = 5;
+const REGISTERED_MAX_VOTES = 10;
+
 
 function firebaseErrorMessage(error) {
   const code = error?.code || '';
@@ -34,6 +39,35 @@ function firebaseErrorMessage(error) {
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
+  const [serverTimeOffset, setServerTimeOffset] = useState(0);
+  const serverTimeOffsetRef = useRef(0);
+
+  useEffect(() => {
+    const fetchServerTimeOffset = async () => {
+      try {
+        const tempRef = doc(db, 'serverTime', 'offset');
+        // Write a temporary document with server timestamp
+        await setDoc(tempRef, { serverTimestamp: FieldValue.serverTimestamp() });
+        const docSnap = await getDoc(tempRef);
+        if (docSnap.exists()) {
+          const serverTime = docSnap.data().serverTimestamp.toMillis();
+          const clientTime = Date.now();
+          const offset = serverTime - clientTime;
+          setServerTimeOffset(offset);
+          serverTimeOffsetRef.current = offset; // Update ref for immediate use
+        }
+      } catch (error) {
+        console.error("Error fetching server time offset:", error);
+        setServerTimeOffset(0); // Fallback to client time
+        serverTimeOffsetRef.current = 0;
+      }
+    };
+    fetchServerTimeOffset();
+  }, []); // Run once on mount
+
+  // Helper function to get adjusted server time
+  const getServerTime = () => Date.now() + serverTimeOffsetRef.current;
+
   const [catalog, setCatalog] = useState(() => {
     try { return JSON.parse(localStorage.getItem('jukebox-catalog-v2') || '[]'); } catch { return []; }
   });
@@ -84,6 +118,7 @@ export default function App() {
   const [themeSwitching, setThemeSwitching] = useState(false);
   const themeSwitchingRef = useRef(false);
   const lastPlayedSongRef = useRef(null);
+  const playingBannerHideTimerRef = useRef(null);
   const prevThemeRef = useRef(theme);
   const surveyTimerRef = useRef(null);
 
@@ -212,7 +247,7 @@ export default function App() {
   }, [toast]);
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(Date.now()), 10000);
+    const timer = setInterval(() => setCurrentTime(getServerTime()), 10000);
     return () => clearInterval(timer);
   }, []);
 
@@ -388,7 +423,7 @@ export default function App() {
         preference,
         theme: 'neon',
         userId: userId || 'anonymous',
-        timestamp: new Date().getTime(),
+        timestamp: FieldValue.serverTimestamp(),
       });
     } catch {
       console.error('Survey save error');
@@ -424,7 +459,7 @@ export default function App() {
 
   const handleRemoveAction = async (songId) => {
     if (!userId) return;
-    lastManualRemoveRef.current = { songId, at: new Date().getTime() };
+    lastManualRemoveRef.current = { songId, at: getServerTime() };
     try {
       const userRef = doc(db, 'users', userId);
       const songRef = doc(db, 'songs', songId);
@@ -471,25 +506,12 @@ export default function App() {
       toast(t.authError, 'error');
       return;
     }
-    const isProposal = song.votes === 0;
-    if (isProposal) {
-      if (userProposals.length >= MAX_PROPOSALS) {
-        if (!isRegistered) setShowOutTokenCTA(true);
-        else toast(t.alreadyVoted, 'info');
-        return;
-      }
-    } else {
-      if (userVotes.length >= MAX_VOTES) {
-        if (!isRegistered) setShowOutTokenCTA(true);
-        else toast(t.alreadyVoted, 'info');
-        return;
-      }
-    }
+
     // Registro optimista: evita notificarte a ti mismo tu propio voto
-    ownVoteRef.current = { songId: song.id, at: new Date().getTime() };
+    ownVoteRef.current = { songId: song.id, at: getServerTime() };
     lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
     try {
-      const votedAt = new Date().getTime();
+      const votedAt = FieldValue.serverTimestamp();
       const userRef = doc(db, 'users', userId);
       const songRef = doc(db, 'songs', song.id);
 
@@ -503,27 +525,64 @@ export default function App() {
         const currentUser = userSnap.exists() ? userSnap.data() : {};
         const currentProposals = currentUser.proposals || [];
         const currentVotes = currentUser.votes || [];
-        // Recalcular dentro de la transacción: otra persona puede haber creado
-        // la canción entre el render y el commit.
-        const effectiveIsProposal = !songSnap.exists();
-        const nextUserValues = {
-          proposals: effectiveIsProposal ? [...currentProposals, song.id] : currentProposals,
-          votes: effectiveIsProposal ? currentVotes : [...currentVotes, song.id],
-        };
-        transaction.set(userRef, nextUserValues, { merge: true });
+        const userIsRegistered = currentUser.isRegistered || false;
 
-        if (songSnap.exists()) {
-          transaction.update(songRef, {
-            votes: (songSnap.data().votes || 0) + 1,
-            ...(effectiveIsProposal ? { proposerName: djDisplayName } : {}),
-          });
-        } else {
-          transaction.set(songRef, {
-            title: song.title,
-            votes: 1,
-            firstVotedAt: votedAt,
-            ...(effectiveIsProposal ? { proposerName: djDisplayName } : {}),
-          });
+        const actualMaxProposals = userIsRegistered ? REGISTERED_MAX_PROPOSALS : GUEST_MAX_PROPOSALS;
+        const actualMaxVotes = userIsRegistered ? REGISTERED_MAX_VOTES : GUEST_MAX_VOTES;
+
+        let finalProposals = [...currentProposals];
+        let finalVotes = [...currentVotes];
+        let shouldIncrementSongVote = false;
+
+        const effectiveIsProposal = !songSnap.exists();
+
+        // --- TOKEN LIMIT CHECK --- (Server-side validation)
+        if (effectiveIsProposal) {
+            if (currentProposals.length >= actualMaxProposals) {
+                // User has reached proposal limit, abort transaction
+                throw new Error(t.proposalLimitReached);
+            }
+        } else { // It's a vote
+            if (currentVotes.length >= actualMaxVotes) {
+                // User has reached vote limit, abort transaction
+                throw new Error(t.voteLimitReached);
+            }
+        }
+        // --- END TOKEN LIMIT CHECK ---
+
+        if (effectiveIsProposal) {
+            if (finalProposals.includes(song.id)) {
+                return; // Ya propuesto, abortar transacción
+            }
+            finalProposals.push(song.id);
+            shouldIncrementSongVote = true;
+        } else { // Es un voto
+            if (finalVotes.includes(song.id)) {
+                return; // Ya votado, abortar transacción
+            }
+            finalVotes.push(song.id);
+            shouldIncrementSongVote = true;
+        }
+
+        transaction.set(userRef, {
+            proposals: finalProposals,
+            votes: finalVotes,
+        }, { merge: true });
+
+        if (shouldIncrementSongVote) {
+            if (songSnap.exists()) {
+                transaction.update(songRef, {
+                    votes: (songSnap.data().votes || 0) + 1,
+                    ...(effectiveIsProposal ? { proposerName: djDisplayName } : {}),
+                });
+            } else {
+                transaction.set(songRef, {
+                    title: song.title,
+                    votes: 1,
+                    firstVotedAt: votedAt,
+                    proposerName: djDisplayName,
+                });
+            }
         }
         // El evento viaja dentro de la misma transacción que el voto. Las reglas
         // comprueban con getAfter() que usuario y canción cambiaron de verdad;
@@ -546,7 +605,17 @@ export default function App() {
       animateVote(song.id);
     } catch (error) {
       lastVoteCountsRef.current[song.id] = activeQueue[song.id]?.votes || 0;
-      toast(t.firebaseError + error.message, 'error');
+      let errorMessage = t.firebaseError + error.message;
+      if (error.message === "Proposal limit reached.") {
+        errorMessage = t.proposalLimitReached;
+      } else if (error.message === "Vote limit reached.") {
+        errorMessage = t.voteLimitReached;
+      } else if (error.message === "Already proposed this song." || error.message === "Already voted for this song.") {
+        // These errors are from the idempotency check in the transaction, but should ideally be caught by the UI
+        // Fallback if UI check fails
+        errorMessage = t.alreadyVoted;
+      }
+      toast(errorMessage, 'error');
     }
   };
 
@@ -634,6 +703,14 @@ export default function App() {
     signInAnonymously(auth).catch(console.error);
   };
 
+  const closePlayingBanner = () => {
+    if (playingBannerHideTimerRef.current) {
+      window.clearTimeout(playingBannerHideTimerRef.current);
+      playingBannerHideTimerRef.current = null;
+    }
+    setShowPlayingBanner(false);
+  };
+
   useEffect(() => {
     if (!nowPlaying || !userId) return undefined;
     const title = nowPlaying.title;
@@ -641,19 +718,35 @@ export default function App() {
     const eventKey = songId || title;
     if (!title || eventKey === lastPlayedSongRef.current) return undefined;
     lastPlayedSongRef.current = eventKey;
+    // Canción distinta: oculto el banner anterior y cancelo su timer de ocultado
+    if (playingBannerHideTimerRef.current) {
+      window.clearTimeout(playingBannerHideTimerRef.current);
+      playingBannerHideTimerRef.current = null;
+    }
+    setShowPlayingBanner(false);
     const isProposed = (userData?.proposals || []).includes(songId) || (userData?.proposals || []).includes(title);
     const isVoted = (userData?.votes || []).includes(songId) || (userData?.votes || []).includes(title);
     if (!isProposed && !isVoted) return undefined;
     const showTimer = window.setTimeout(() => {
       setPlayingBannerData({ title, songId, isProposed, isVoted });
       setShowPlayingBanner(true);
+      // El timer de ocultado vive en una ref: las actualizaciones de progreso
+      // del bridge (misma canción) no lo cancelan. Se programa UNA vez por canción.
+      playingBannerHideTimerRef.current = window.setTimeout(() => {
+        playingBannerHideTimerRef.current = null;
+        setShowPlayingBanner(false);
+      }, 8000);
     }, 0);
-    const hideTimer = window.setTimeout(() => setShowPlayingBanner(false), 8000);
-    return () => {
-      window.clearTimeout(showTimer);
-      window.clearTimeout(hideTimer);
-    };
+    return () => window.clearTimeout(showTimer);
   }, [nowPlaying, userId, userData, catalog]);
+
+  // Limpieza al desmontar: evita setState después de unmount
+  useEffect(() => () => {
+    if (playingBannerHideTimerRef.current) {
+      window.clearTimeout(playingBannerHideTimerRef.current);
+      playingBannerHideTimerRef.current = null;
+    }
+  }, []);
 
   const validateYoutubeUrl = (url) => {
     return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(url);
@@ -778,7 +871,7 @@ export default function App() {
         if (!userProposalsRef.current.includes(ev.songId)) return;
         const song = activeQueueRef.current[ev.songId];
         const ownVote = ownVoteRef.current;
-        const isOwnVote = ownVote && ownVote.songId === ev.songId && (Date.now() - ownVote.at < 3000);
+        const isOwnVote = ownVote && ownVote.songId === ev.songId && (getServerTime() - ownVote.at < 3000);
         if (!song || song.votes < 2 || isOwnVote) return;
         if (voteNotifiedRef.current[ev.songId] === song.votes) return;
         voteNotifiedRef.current[ev.songId] = song.votes;
@@ -792,7 +885,7 @@ export default function App() {
   // Fallback: si el evento no llegó, la detección por delta en la cola avisa igualmente
   useEffect(() => {
     if (!userId) return;
-    const now = Date.now();
+    const now = getServerTime();
     Object.entries(activeQueue).forEach(([songId, song]) => {
       if (!userProposals.includes(songId)) return;
       const prev = lastVoteCountsRef.current[songId];
@@ -821,7 +914,7 @@ export default function App() {
       lastVotesOrProposalsRef.current = { proposals: curProposals, votes: curVotes };
       return;
     }
-    const now = Date.now();
+    const now = getServerTime();
     const lost = [
       ...prevState.proposals.filter(id => !curProposals.includes(id)),
       ...prevState.votes.filter(id => !curVotes.includes(id)),
@@ -1051,11 +1144,23 @@ export default function App() {
               {nowPlaying?.title && (() => {
                 const npSong = Object.values(activeQueue).find(s => resolveSongId(nowPlaying, [s]) === s.id && s.votes > 0);
                 if (!npSong) return null;
+
+                const hasVotedForCurrentSong = userVotes.includes(npSong.id);
+                const isDisabled = hasVotedForCurrentSong || limitReached || !isBridgeActive || isCoolingDown;
+
                 return (
                   <div className={`flex items-center justify-center gap-2 mb-3 ${isCatrina ? 'relative z-[1]' : ''}`}>
-                    <div ref={heartRef} className="jukebox-heart-icon">
-                      <Heart size={22} className="fill-current" />
-                    </div>
+                    <button
+                      onClick={() => handleVote(npSong)}
+                      disabled={hasVotedForCurrentSong || limitReached || !isBridgeActive || isCoolingDown}
+                      className={`jukebox-heart-button jukebox-heart-icon p-1.5 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${hasVotedForCurrentSong ? 'text-red-500' : (isCatrina ? 'text-brand-gold/25 hover:text-brand-gold' : 'text-zinc-600 hover:text-red-400')} ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={hasVotedForCurrentSong ? t.alreadyVotedNowPlaying : (isDisabled ? t.voteDisabledNowPlaying : t.voteNowPlaying)}
+                      aria-label={hasVotedForCurrentSong ? t.alreadyVotedNowPlaying : (isDisabled ? t.voteDisabledNowPlaying : t.voteNowPlaying)}
+                    >
+                      <div ref={heartRef}>
+                        <Heart size={22} className={hasVotedForCurrentSong ? "fill-current" : ""} />
+                      </div>
+                    </button>
                     <span className={`text-xs font-medium ${isCatrina ? 'text-brand-gold/60' : 'text-zinc-400'}`}>
                       {npSong.votes} {npSong.votes === 1 ? t.likeSingular : t.likesPlural}
                       {npSong.proposerName && (
@@ -1073,7 +1178,7 @@ export default function App() {
               <div className="space-y-2 text-left">
                 <div className="jukebox-np-bar">
                   <div
-                    className="jukebox-np-bar-fill"
+                    className="jukebox-np-bar-fill transition-all duration-1000 ease-linear"
                     style={{ width: `${calculateProgress()}%` }}
                   />
                 </div>
@@ -1455,7 +1560,7 @@ export default function App() {
       </main>
 
       {/* ===== TRIVIA: regalo 3D cada 30 min — solo usuarios registrados ===== */}
-      <TriviaGift userId={userId} t={t} lastTriviaAt={userData?.lastTriviaAt || null} isRegistered={isRegistered} />
+      <TriviaGift userId={userId} t={t} lastTriviaAt={userData?.lastTriviaAt || null} isRegistered={isRegistered} getServerTime={getServerTime} />
 
       {/* ===== HELP MODAL ===== */}
       {showHelp && (
@@ -1538,6 +1643,7 @@ export default function App() {
             catalog={catalog}
             isCatrina={isCatrina}
             mainTextClass={mainTextClass}
+            getServerTime={getServerTime}
           />
         </Suspense>
       )}
@@ -1546,9 +1652,16 @@ export default function App() {
       {showPlayingBanner && playingBannerData && (
         <div className={isCatrina ? 'jukebox-playing-banner' : 'fixed top-16 left-0 right-0 z-[90] flex justify-center px-4 animate-bounce'}>
           <div className={isCatrina
-            ? 'px-6 py-4 max-w-sm w-full text-center'
-            : 'bg-gradient-to-r from-brand-neon-purple/20 to-brand-neon-green/20 border border-brand-neon-purple/40 rounded-2xl px-6 py-4 max-w-sm w-full text-center shadow-[0_0_30px_rgba(176,38,255,0.2)]'
+            ? 'relative px-6 py-4 max-w-sm w-full text-center'
+            : 'relative bg-gradient-to-r from-brand-neon-purple/20 to-brand-neon-green/20 border border-brand-neon-purple/40 rounded-2xl px-6 py-4 max-w-sm w-full text-center shadow-[0_0_30px_rgba(176,38,255,0.2)]'
           }>
+            <button
+              onClick={closePlayingBanner}
+              aria-label="Cerrar aviso de canción sonando"
+              className={`absolute top-2 right-2 transition-colors ${isCatrina ? 'text-brand-gold/70 hover:text-brand-gold' : 'text-zinc-400 hover:text-white'}`}
+            >
+              <X size={16} />
+            </button>
             <p className={`font-bold text-sm flex items-center justify-center gap-2 ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-green'}`}>
               <Disc3 size={18} className="animate-spin" /> {t.yourSongPlaying}
             </p>

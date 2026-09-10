@@ -122,31 +122,58 @@ async def clear_all_data(session_start=None):
         report_error("Error en limpieza total", e)
 
 async def check_for_new_session():
-    """Comprueba si toca resetear según la hora de la última activación."""
+    """Comprueba si toca resetear según la fecha de calendario (pasadas las 2 AM)."""
     try:
         now = datetime.now()
-        current_session = session_start_ms(now)
+        reset_hour = 2 # Hora del día en que se debe realizar el reset (2 AM)
+
         state_doc = db.collection('state').document('nowPlaying').get()
+        state = state_doc.to_dict() if state_doc.exists else {}
 
-        if not state_doc.exists:
-            db.collection('state').document('nowPlaying').set({
-                'sessionStart': current_session,
-                'lastActive': int(time.time() * 1000),
-            }, merge=True)
-            return
+        last_reset_date_str = state.get('lastResetDate')
+        last_reset_dt = None
 
-        state = state_doc.to_dict() or {}
-        if state.get('sessionStart') == current_session:
-            print(" [SISTEMA] Continuidad detectada. No se requiere limpieza.")
-            return
+        if last_reset_date_str:
+            try:
+                # Firestore no guarda la zona horaria, se asume que lastResetDate fue guardado en la misma TZ que 'now'
+                last_reset_dt = datetime.fromisoformat(last_reset_date_str)
+            except ValueError:
+                # Si el formato es incorrecto, lo tratamos como si nunca se hubiera reseteado
+                print(f" [SISTEMA] Advertencia: lastResetDate '{last_reset_date_str}' no es ISO. Forzando chequeo de reseteo.")
+                last_reset_dt = None # Forzar el reseteo si es necesario
 
-        last_active_ms = state.get('lastActive', 0)
-        boundary = datetime.fromtimestamp(current_session / 1000.0)
-        if last_active_ms and datetime.fromtimestamp(last_active_ms / 1000.0) < boundary and now >= boundary:
-            await clear_all_data(current_session)
+        should_reset = False
+        if not last_reset_dt:
+            # Si no hay fecha de último reset, es la primera ejecución o un dato corrupto.
+            # Se fuerza el reset si ya es la hora de reset.
+            if now.hour >= reset_hour:
+                should_reset = True
         else:
-            db.collection('state').document('nowPlaying').set({'sessionStart': current_session}, merge=True)
-            print(" [SISTEMA] Nueva sesión sin datos anteriores que limpiar.")
+            # Comprobar si ha pasado al menos un día y ya son las 2 AM
+            is_new_day = (now.date() > last_reset_dt.date())
+            is_past_reset_hour = (now.hour >= reset_hour)
+            was_reset_before_2am_today = (now.date() == last_reset_dt.date() and last_reset_dt.hour < reset_hour and now.hour >= reset_hour)
+
+            if (is_new_day and is_past_reset_hour) or was_reset_before_2am_today:
+                should_reset = True
+        
+        # current_session solo se usa como argumento en clear_all_data
+        current_session_start_ms = session_start_ms(now)
+
+        if should_reset:
+            print(f" [SISTEMA] Nueva jornada detectada ({now.strftime('%Y-%m-%d %H:%M')}). Realizando limpieza total.")
+            await clear_all_data(current_session_start_ms)
+            # Guardar la fecha y hora actual como la última vez que se realizó el reset
+            db.collection('state').document('nowPlaying').set({
+                'lastResetDate': now.isoformat(),
+                'lastActive': int(time.time() * 1000), # También actualizamos lastActive
+            }, merge=True)
+            print(" [SISTEMA] ¡Base de datos reseteada para la nueva jornada!")
+        else:
+            # Solo actualizar lastActive si no se hizo un reset para evitar sobrescribir 'sessionStart'
+            db.collection('state').document('nowPlaying').set({'lastActive': int(time.time() * 1000)}, merge=True)
+            print(" [SISTEMA] Continuidad detectada. No se requiere limpieza de jornada.")
+
     except Exception as e:
         report_error("Error al comprobar sesión", e)
 
@@ -183,10 +210,24 @@ async def reset_song_and_tokens(filename):
         try:
             today = datetime.now().strftime('%Y-%m-%d')
             night_ref = db.collection('leaderboard').document('noche')
+            night_doc = night_ref.get()
+            if not night_doc.exists:
+                night_ref.set({'points': {}, 'names': {}}, merge=False) # Inicializar si no existe
+
             week_ref = db.collection('leaderboard').document('semana')
+            week_doc = week_ref.get()
+            if not week_doc.exists:
+                week_ref.set({'points': {}, 'names': {}}, merge=False) # Inicializar si no existe
+
             for uid, name, pts in affected:
-                night_ref.set({f'points.{uid}': firestore.Increment(pts), f'names.{uid}': name}, merge=True)
-                week_ref.set({f'points.{uid}': firestore.Increment(pts), f'names.{uid}': name}, merge=True)
+                night_ref.update({
+                    f'points.{uid}': firestore.Increment(pts),
+                    f'names.{uid}': name
+                })
+                week_ref.update({
+                    f'points.{uid}': firestore.Increment(pts),
+                    f'names.{uid}': name
+                })
                 users_ref.document(uid).update({
                     'points': firestore.Increment(pts),
                     'totalPointsEarned': firestore.Increment(pts),
