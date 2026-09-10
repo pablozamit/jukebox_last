@@ -224,10 +224,24 @@ async def reset_song_and_tokens(filename):
         try:
             today = datetime.now().strftime('%Y-%m-%d')
             night_ref = db.collection('leaderboard').document('noche')
+            night_doc = night_ref.get()
+            if not night_doc.exists:
+                night_ref.set({'points': {}, 'names': {}}, merge=False) # Inicializar si no existe
+
             week_ref = db.collection('leaderboard').document('semana')
+            week_doc = week_ref.get()
+            if not week_doc.exists:
+                week_ref.set({'points': {}, 'names': {}}, merge=False) # Inicializar si no existe
+
             for uid, name, pts in affected:
-                night_ref.set({f'points.{uid}': firestore.Increment(pts), f'names.{uid}': name}, merge=True)
-                week_ref.set({f'points.{uid}': firestore.Increment(pts), f'names.{uid}': name}, merge=True)
+                night_ref.update({
+                    f'points.{uid}': firestore.Increment(pts),
+                    f'names.{uid}': name
+                })
+                week_ref.update({
+                    f'points.{uid}': firestore.Increment(pts),
+                    f'names.{uid}': name
+                })
                 users_ref.document(uid).update({
                     'points': firestore.Increment(pts),
                     'totalPointsEarned': firestore.Increment(pts),
