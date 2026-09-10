@@ -1110,7 +1110,7 @@ export default function App() {
               <div className="space-y-2 text-left">
                 <div className="jukebox-np-bar">
                   <div
-                    className="jukebox-np-bar-fill"
+                    className="jukebox-np-bar-fill transition-all duration-1000 ease-linear"
                     style={{ width: `${calculateProgress()}%` }}
                   />
                 </div>
