@@ -504,27 +504,46 @@ export default function App() {
         const currentUser = userSnap.exists() ? userSnap.data() : {};
         const currentProposals = currentUser.proposals || [];
         const currentVotes = currentUser.votes || [];
-        // Recalcular dentro de la transacción: otra persona puede haber creado
-        // la canción entre el render y el commit.
-        const effectiveIsProposal = !songSnap.exists();
-        const nextUserValues = {
-          proposals: effectiveIsProposal ? [...currentProposals, song.id] : currentProposals,
-          votes: effectiveIsProposal ? currentVotes : [...currentVotes, song.id],
-        };
-        transaction.set(userRef, nextUserValues, { merge: true });
 
-        if (songSnap.exists()) {
-          transaction.update(songRef, {
-            votes: (songSnap.data().votes || 0) + 1,
-            ...(effectiveIsProposal ? { proposerName: djDisplayName } : {}),
-          });
-        } else {
-          transaction.set(songRef, {
-            title: song.title,
-            votes: 1,
-            firstVotedAt: votedAt,
-            ...(effectiveIsProposal ? { proposerName: djDisplayName } : {}),
-          });
+        let finalProposals = [...currentProposals];
+        let finalVotes = [...currentVotes];
+        let shouldIncrementSongVote = false;
+
+        const effectiveIsProposal = !songSnap.exists();
+
+        if (effectiveIsProposal) {
+            if (finalProposals.includes(song.id)) {
+                return; // Ya propuesto, abortar transacción
+            }
+            finalProposals.push(song.id);
+            shouldIncrementSongVote = true;
+        } else { // Es un voto
+            if (finalVotes.includes(song.id)) {
+                return; // Ya votado, abortar transacción
+            }
+            finalVotes.push(song.id);
+            shouldIncrementSongVote = true;
+        }
+
+        transaction.set(userRef, {
+            proposals: finalProposals,
+            votes: finalVotes,
+        }, { merge: true });
+
+        if (shouldIncrementSongVote) {
+            if (songSnap.exists()) {
+                transaction.update(songRef, {
+                    votes: (songSnap.data().votes || 0) + 1,
+                    ...(effectiveIsProposal ? { proposerName: djDisplayName } : {}),
+                });
+            } else {
+                transaction.set(songRef, {
+                    title: song.title,
+                    votes: 1,
+                    firstVotedAt: votedAt,
+                    proposerName: djDisplayName,
+                });
+            }
         }
         // El evento viaja dentro de la misma transacción que el voto. Las reglas
         // comprueban con getAfter() que usuario y canción cambiaron de verdad;
