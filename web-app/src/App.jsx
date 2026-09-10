@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { collection, collectionGroup, onSnapshot, doc, getDoc, setDoc, addDoc, query, where, limit, runTransaction } from 'firebase/firestore';
+import { collection, collectionGroup, onSnapshot, doc, getDoc, setDoc, addDoc, query, where, limit, runTransaction, FieldValue } from 'firebase/firestore';
 import { resolveSongId } from './appLogic';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
 import { Search, Flame, LogIn, Plus, Music2, X, HelpCircle, ArrowUp, Disc3, BarChart3, ChevronUp, ChevronDown, Trash2, Users, Trophy, Loader2, Heart, Crown } from 'lucide-react';
@@ -39,6 +39,35 @@ function firebaseErrorMessage(error) {
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
+  const [serverTimeOffset, setServerTimeOffset] = useState(0);
+  const serverTimeOffsetRef = useRef(0);
+
+  useEffect(() => {
+    const fetchServerTimeOffset = async () => {
+      try {
+        const tempRef = doc(db, 'serverTime', 'offset');
+        // Write a temporary document with server timestamp
+        await setDoc(tempRef, { serverTimestamp: FieldValue.serverTimestamp() });
+        const docSnap = await getDoc(tempRef);
+        if (docSnap.exists()) {
+          const serverTime = docSnap.data().serverTimestamp.toMillis();
+          const clientTime = Date.now();
+          const offset = serverTime - clientTime;
+          setServerTimeOffset(offset);
+          serverTimeOffsetRef.current = offset; // Update ref for immediate use
+        }
+      } catch (error) {
+        console.error("Error fetching server time offset:", error);
+        setServerTimeOffset(0); // Fallback to client time
+        serverTimeOffsetRef.current = 0;
+      }
+    };
+    fetchServerTimeOffset();
+  }, []); // Run once on mount
+
+  // Helper function to get adjusted server time
+  const getServerTime = () => Date.now() + serverTimeOffsetRef.current;
+
   const [catalog, setCatalog] = useState(() => {
     try { return JSON.parse(localStorage.getItem('jukebox-catalog-v2') || '[]'); } catch { return []; }
   });
@@ -218,7 +247,7 @@ export default function App() {
   }, [toast]);
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(Date.now()), 10000);
+    const timer = setInterval(() => setCurrentTime(getServerTime()), 10000);
     return () => clearInterval(timer);
   }, []);
 
@@ -394,7 +423,7 @@ export default function App() {
         preference,
         theme: 'neon',
         userId: userId || 'anonymous',
-        timestamp: new Date().getTime(),
+        timestamp: FieldValue.serverTimestamp(),
       });
     } catch {
       console.error('Survey save error');
@@ -430,7 +459,7 @@ export default function App() {
 
   const handleRemoveAction = async (songId) => {
     if (!userId) return;
-    lastManualRemoveRef.current = { songId, at: new Date().getTime() };
+    lastManualRemoveRef.current = { songId, at: getServerTime() };
     try {
       const userRef = doc(db, 'users', userId);
       const songRef = doc(db, 'songs', songId);
@@ -479,10 +508,10 @@ export default function App() {
     }
 
     // Registro optimista: evita notificarte a ti mismo tu propio voto
-    ownVoteRef.current = { songId: song.id, at: new Date().getTime() };
+    ownVoteRef.current = { songId: song.id, at: getServerTime() };
     lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
     try {
-      const votedAt = new Date().getTime();
+      const votedAt = FieldValue.serverTimestamp();
       const userRef = doc(db, 'users', userId);
       const songRef = doc(db, 'songs', song.id);
 
@@ -842,7 +871,7 @@ export default function App() {
         if (!userProposalsRef.current.includes(ev.songId)) return;
         const song = activeQueueRef.current[ev.songId];
         const ownVote = ownVoteRef.current;
-        const isOwnVote = ownVote && ownVote.songId === ev.songId && (Date.now() - ownVote.at < 3000);
+        const isOwnVote = ownVote && ownVote.songId === ev.songId && (getServerTime() - ownVote.at < 3000);
         if (!song || song.votes < 2 || isOwnVote) return;
         if (voteNotifiedRef.current[ev.songId] === song.votes) return;
         voteNotifiedRef.current[ev.songId] = song.votes;
@@ -856,7 +885,7 @@ export default function App() {
   // Fallback: si el evento no llegó, la detección por delta en la cola avisa igualmente
   useEffect(() => {
     if (!userId) return;
-    const now = Date.now();
+    const now = getServerTime();
     Object.entries(activeQueue).forEach(([songId, song]) => {
       if (!userProposals.includes(songId)) return;
       const prev = lastVoteCountsRef.current[songId];
@@ -885,7 +914,7 @@ export default function App() {
       lastVotesOrProposalsRef.current = { proposals: curProposals, votes: curVotes };
       return;
     }
-    const now = Date.now();
+    const now = getServerTime();
     const lost = [
       ...prevState.proposals.filter(id => !curProposals.includes(id)),
       ...prevState.votes.filter(id => !curVotes.includes(id)),
@@ -1531,7 +1560,7 @@ export default function App() {
       </main>
 
       {/* ===== TRIVIA: regalo 3D cada 30 min — solo usuarios registrados ===== */}
-      <TriviaGift userId={userId} t={t} lastTriviaAt={userData?.lastTriviaAt || null} isRegistered={isRegistered} />
+      <TriviaGift userId={userId} t={t} lastTriviaAt={userData?.lastTriviaAt || null} isRegistered={isRegistered} getServerTime={getServerTime} />
 
       {/* ===== HELP MODAL ===== */}
       {showHelp && (
@@ -1614,6 +1643,7 @@ export default function App() {
             catalog={catalog}
             isCatrina={isCatrina}
             mainTextClass={mainTextClass}
+            getServerTime={getServerTime}
           />
         </Suspense>
       )}

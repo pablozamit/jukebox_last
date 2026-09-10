@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { doc, runTransaction } from 'firebase/firestore';
+import { doc, runTransaction, FieldValue } from 'firebase/firestore';
 import { X } from 'lucide-react';
 import { db } from './firebase';
 import { useTheme } from './ThemeContext';
@@ -20,12 +20,12 @@ const OPTION_COLORS = ['red', 'blue', 'yellow', 'green'];
  * Si aciertas: +1 propuesta de canción y +2 votos extra.
  * Una sola oportunidad por ronda (aunque falles).
  */
-export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered }) {
+export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getServerTime }) {
   const { theme } = useTheme();
   const toast = useToast();
   const isCatrina = theme === 'catrina';
 
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => getServerTime());
   const [showModal, setShowModal] = useState(false);
   const [question, setQuestion] = useState(null);
   const [selected, setSelected] = useState(null);
@@ -43,11 +43,11 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered }) {
   const timeInWindow = now % WINDOW_MS;
   const giftVisible = timeInWindow < GIFT_VISIBLE_MS;
   const answeredThisWindow = (answeredRound.windowId === windowId && answeredRound.done)
-    || (lastTriviaAt && (now - lastTriviaAt) < WINDOW_MS);
+    || (lastTriviaAt && (now - lastTriviaAt.toMillis()) < WINDOW_MS);
 
   // Reloj interno para saber cuándo aparece/desaparece la bolita
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 5000);
+    const timer = window.setInterval(() => setNow(getServerTime()), 5000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -72,7 +72,7 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered }) {
     setTimeLeft(QUESTION_TIME);
     setWon(false);
     roundConsumedRef.current = false;
-    setDeadline(Date.now() + QUESTION_TIME * 1000);
+        setDeadline(getServerTime() + QUESTION_TIME * 1000);
     setShowModal(true);
   };
 
@@ -80,7 +80,7 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered }) {
     if (roundConsumedRef.current) return;
     roundConsumedRef.current = true;
     setPhase('revealed');
-    const triviaTimestamp = Date.now();
+    const triviaTimestamp = FieldValue.serverTimestamp();
     const userRef = doc(db, 'users', userId);
     runTransaction(db, async (transaction) => {
       const userSnap = await transaction.get(userRef);
@@ -118,7 +118,7 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered }) {
         setSelected(null);
         setPhase('playing');
         setTimeLeft(QUESTION_TIME);
-        setDeadline(Date.now() + QUESTION_TIME * 1000);
+    setDeadline(getServerTime() + QUESTION_TIME * 1000);
         toast(t.firebaseError, 'error');
       }
     });
@@ -142,7 +142,7 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered }) {
   useEffect(() => {
     if (!showModal || phase !== 'playing' || !question || !deadline) return undefined;
     const timer = window.setInterval(() => {
-      const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      const left = Math.max(0, Math.ceil((deadline - getServerTime()) / 1000));
       setTimeLeft(left);
       if (left <= 0) {
         window.clearInterval(timer);

@@ -3,7 +3,7 @@ import { BarChart3, X, Disc3, Flame } from 'lucide-react';
 import { collection, doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
-export default function StatsModal({ onClose, t, catalog, isCatrina, mainTextClass }) {
+export default function StatsModal({ onClose, t, catalog, isCatrina, mainTextClass, getServerTime }) {
   const [range, setRange] = useState('hoy');
   const [data, setData] = useState({ plays: {}, votes: {}, time: {}, playsTotal: {}, votesTotal: {} });
   const [loading, setLoading] = useState(true);
@@ -31,10 +31,10 @@ export default function StatsModal({ onClose, t, catalog, isCatrina, mainTextCla
           const npSnap = await getDoc(doc(db, 'state', 'nowPlaying'));
           lastActive = npSnap.data()?.lastActive || 0;
         } catch { /* sin conexión o sin doc */ }
-        const boundary = new Date();
+        const boundary = new Date(getServerTime());
         boundary.setHours(2, 0, 0, 0);
-        if (Date.now() < boundary.getTime()) boundary.setDate(boundary.getDate() - 1);
-        const monday = new Date();
+        if (getServerTime() < boundary.getTime()) boundary.setDate(boundary.getDate() - 1);
+        const monday = new Date(getServerTime());
         monday.setHours(2, 0, 0, 0);
         monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
 
