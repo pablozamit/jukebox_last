@@ -601,6 +601,18 @@ export default function App() {
 
       // Los contadores los calcula el bridge a partir de este evento confirmado.
       // El navegador no escribe mapas de estadísticas arbitrarios.
+      // El bridge limpia votes/proposals del usuario al empezar la cancion;
+      // sin este recuerdo local el banner "tu cancion esta sonando" perderia la referencia.
+      try {
+        const key = 'jb-my-tracks';
+        const today = new Date().toDateString();
+        const prev = JSON.parse(localStorage.getItem(key) || '{}');
+        const mine = prev.date === today ? prev : { date: today, proposals: [], votes: [] };
+        const list = effectiveIsProposal ? mine.proposals : mine.votes;
+        if (!list.includes(song.id)) list.push(song.id);
+        if (song.title && !list.includes(song.title)) list.push(song.title);
+        localStorage.setItem(key, JSON.stringify(mine));
+      } catch { /* sin localStorage */ }
       setLastVotedSongId(song.id);
       animateVote(song.id);
     } catch (error) {
@@ -724,8 +736,13 @@ export default function App() {
       playingBannerHideTimerRef.current = null;
     }
     setShowPlayingBanner(false);
-    const isProposed = (userData?.proposals || []).includes(songId) || (userData?.proposals || []).includes(title);
-    const isVoted = (userData?.votes || []).includes(songId) || (userData?.votes || []).includes(title);
+    let __myTracks = { proposals: [], votes: [] };
+    try {
+      const __raw = JSON.parse(localStorage.getItem('jb-my-tracks') || '{}');
+      if (__raw.date === new Date().toDateString()) __myTracks = __raw;
+    } catch { /* sin localStorage */ }
+    const isProposed = (userData?.proposals || []).includes(songId) || (userData?.proposals || []).includes(title) || __myTracks.proposals.includes(songId) || __myTracks.proposals.includes(title);
+    const isVoted = (userData?.votes || []).includes(songId) || (userData?.votes || []).includes(title) || __myTracks.votes.includes(songId) || __myTracks.votes.includes(title);
     if (!isProposed && !isVoted) return undefined;
     const showTimer = window.setTimeout(() => {
       setPlayingBannerData({ title, songId, isProposed, isVoted });
