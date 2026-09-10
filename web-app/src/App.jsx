@@ -1076,11 +1076,23 @@ export default function App() {
               {nowPlaying?.title && (() => {
                 const npSong = Object.values(activeQueue).find(s => resolveSongId(nowPlaying, [s]) === s.id && s.votes > 0);
                 if (!npSong) return null;
+
+                const hasVotedForCurrentSong = userVotes.includes(npSong.id);
+                const isDisabled = hasVotedForCurrentSong || limitReached || !isBridgeActive || isCoolingDown;
+
                 return (
                   <div className={`flex items-center justify-center gap-2 mb-3 ${isCatrina ? 'relative z-[1]' : ''}`}>
-                    <div ref={heartRef} className="jukebox-heart-icon">
-                      <Heart size={22} className="fill-current" />
-                    </div>
+                    <button
+                      onClick={() => handleVote(npSong)}
+                      disabled={hasVotedForCurrentSong || limitReached || !isBridgeActive || isCoolingDown}
+                      className={`jukebox-heart-button jukebox-heart-icon p-1.5 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${hasVotedForCurrentSong ? 'text-red-500' : (isCatrina ? 'text-brand-gold/25 hover:text-brand-gold' : 'text-zinc-600 hover:text-red-400')} ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={hasVotedForCurrentSong ? t.alreadyVotedNowPlaying : (isDisabled ? t.voteDisabledNowPlaying : t.voteNowPlaying)}
+                      aria-label={hasVotedForCurrentSong ? t.alreadyVotedNowPlaying : (isDisabled ? t.voteDisabledNowPlaying : t.voteNowPlaying)}
+                    >
+                      <div ref={heartRef}>
+                        <Heart size={22} className={hasVotedForCurrentSong ? "fill-current" : ""} />
+                      </div>
+                    </button>
                     <span className={`text-xs font-medium ${isCatrina ? 'text-brand-gold/60' : 'text-zinc-400'}`}>
                       {npSong.votes} {npSong.votes === 1 ? t.likeSingular : t.likesPlural}
                       {npSong.proposerName && (
