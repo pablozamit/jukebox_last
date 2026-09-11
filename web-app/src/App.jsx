@@ -509,6 +509,7 @@ export default function App() {
 
     // Registro optimista: evita notificarte a ti mismo tu propio voto
     ownVoteRef.current = { songId: song.id, at: getServerTime() };
+    let voteWasProposal = false;
     lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
     try {
       const votedAt = serverTimestamp();
@@ -535,6 +536,7 @@ export default function App() {
         let shouldIncrementSongVote = false;
 
         const effectiveIsProposal = !songSnap.exists();
+        voteWasProposal = effectiveIsProposal;
 
         // --- TOKEN LIMIT CHECK --- (Server-side validation)
         if (effectiveIsProposal) {
@@ -608,7 +610,7 @@ export default function App() {
         const today = new Date().toDateString();
         const prev = JSON.parse(localStorage.getItem(key) || '{}');
         const mine = prev.date === today ? prev : { date: today, proposals: [], votes: [] };
-        const list = effectiveIsProposal ? mine.proposals : mine.votes;
+        const list = voteWasProposal ? mine.proposals : mine.votes;
         if (!list.includes(song.id)) list.push(song.id);
         if (song.title && !list.includes(song.title)) list.push(song.title);
         localStorage.setItem(key, JSON.stringify(mine));
