@@ -189,9 +189,25 @@ export default function AdminPage() {
     }
   };
 
+  // B1: el bridge ya no actualiza 'currentTime' cada 5s; el progreso se calcula en
+  // local desde 'startedAt' (ms) y un tic re-renderiza la barra cada 10s.
+  const [progressNow, setProgressNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setProgressNow(Date.now()), 10000);
+    return () => clearInterval(timer);
+  }, []);
+
   const calculateProgress = () => {
     if (!nowPlaying || !nowPlaying.totalTime) return 0;
-    return (nowPlaying.currentTime / nowPlaying.totalTime) * 100;
+    let elapsed;
+    if (nowPlaying.startedAt) {
+      elapsed = (progressNow - nowPlaying.startedAt) / 1000;
+    } else if (typeof nowPlaying.currentTime === 'number') {
+      elapsed = nowPlaying.currentTime; // compatibilidad con nowPlaying antiguos (bridge sin actualizar)
+    } else {
+      return 0;
+    }
+    return (Math.min(Math.max(elapsed, 0), nowPlaying.totalTime) / nowPlaying.totalTime) * 100;
   };
 
   if (authLoading) {

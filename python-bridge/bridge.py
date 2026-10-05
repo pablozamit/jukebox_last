@@ -15,7 +15,7 @@ KODI_PASS = os.getenv("KODI_PASS", "kodi")
 VIDEO_FOLDER_PATH = os.getenv("VIDEO_FOLDER_PATH", "C:/Users/lacat/Videos/Videoclips")
 VIDEO_ROOT = Path(VIDEO_FOLDER_PATH).expanduser().resolve()
 FIREBASE_CRED_PATH = os.getenv("FIREBASE_CREDENTIALS_JSON", "./serviceAccountKey.json")
-BRIDGE_VERSION = "2.1.0"
+BRIDGE_VERSION = "2.2.0"
 pending_kodi_requests = {}
 active_connection_tasks = set()
 playback_lock = asyncio.Lock()
@@ -41,6 +41,13 @@ cred = credentials.Certificate(FIREBASE_CRED_PATH)
 if not firebase_admin._apps: firebase_admin.initialize_app(cred)
 db = firestore.client()
 
+# ===== Estado global compartido entre asyncio y los watchers de Firestore =====
+MAIN_LOOP = None                  # Bucle asyncio principal (para marshaling desde hilos de watchers)
+CATALOG_CACHE = {}                # {songId: title}; evita releer catalog/full_list (~200 KB) por cada voto
+SESSION_STATE = {'start': None}   # Inicio de la jornada en ms; lo mantiene el watchdog
+SESSION_USER_IDS = set()          # Usuarios que han participado hoy (derivado de los eventos, sin leer 'users')
+PROGRESS_STATE = {'file': None, 'total': -1}
+
 def clean_title(filename):
     if not filename: return "Cargando..."
     name = os.path.basename(filename)
@@ -58,9 +65,28 @@ def sync_local_files():
             'available': True
         })
 
+    CATALOG_CACHE.clear()
+    for song in catalog_list:
+        CATALOG_CACHE[song['id']] = song['title']
+
     db.collection('catalog').document('full_list').set({'songs': catalog_list})
     print(f"Catálogo sincronizado: {len(catalog_list)} canciones guardadas en 1 solo documento.")
     return local_filenames
+
+async def catalog_cache_refresher():
+    """Refresca la caché de catálogo cada 10 min (1 lectura) por si el panel
+    de administración cambia el catálogo con el bridge en marcha."""
+    while True:
+        await asyncio.sleep(600)
+        try:
+            doc_snap = db.collection('catalog').document('full_list').get()
+            songs = (doc_snap.to_dict() or {}).get('songs', []) if doc_snap.exists else []
+            new_cache = {song.get('id'): song.get('title') for song in songs if song.get('id')}
+            if new_cache:
+                CATALOG_CACHE.clear()
+                CATALOG_CACHE.update(new_cache)
+        except Exception as e:
+            report_error("Error refrescando caché de catálogo", e)
 
 async def clear_all_data(session_start=None):
     """Limpia la jornada una sola vez y deja una marca idempotente."""
@@ -76,9 +102,12 @@ async def clear_all_data(session_start=None):
             if count >= 400:
                 batch.commit(); batch = db.batch(); count = 0
 
+        today_iso = datetime.now().isoformat()
         users_ref = db.collection('users').stream()
         for user in users_ref:
-            batch.update(user.reference, {'proposals': [], 'votes': []})
+            # lastResetSeen marca la última jornada en la que existió el usuario;
+            # permite purgar después solo sesiones anónimas abandonadas.
+            batch.update(user.reference, {'proposals': [], 'votes': [], 'lastResetSeen': today_iso})
             count += 1
             if count >= 400:
                 batch.commit(); batch = db.batch(); count = 0
@@ -108,6 +137,31 @@ async def clear_all_data(session_start=None):
             batch.delete(stats_ref.document('plays_mes'))
             batch.delete(stats_ref.document('votes_mes'))
             count += 2
+
+            # Purga mensual de sesiones anónimas abandonadas hace más de 30 días:
+            # sin email, sin nombre DJ, sin puntos ni logros y sin marca reciente.
+            # Los perfiles registrados y los usuarios con historial nunca se borran.
+            cutoff_ms = int(time.time() * 1000) - 30 * 24 * 3600 * 1000
+            for user in db.collection('users').stream():
+                d = user.to_dict() or {}
+                if d.get('email') or (d.get('djName') or '').strip():
+                    continue
+                if d.get('points') or d.get('achievements'):
+                    continue
+                if d.get('proposals') or d.get('votes'):
+                    continue
+                last_seen = d.get('lastResetSeen')
+                if not last_seen:
+                    continue  # Sin marca todavía: se marcará esta noche
+                try:
+                    if datetime.fromisoformat(last_seen).timestamp() * 1000 > cutoff_ms:
+                        continue
+                except ValueError:
+                    continue
+                batch.delete(user.reference)
+                count += 1
+                if count >= 400:
+                    batch.commit(); batch = db.batch(); count = 0
 
         if count > 0:
             batch.commit()
@@ -169,7 +223,10 @@ async def check_for_new_session():
                 'lastActive': int(time.time() * 1000), # También actualizamos lastActive
             }, merge=True)
             print(" [SISTEMA] ¡Base de datos reseteada para la nueva jornada!")
+            SESSION_STATE['start'] = current_session_start_ms
+            SESSION_USER_IDS.clear()
         else:
+            SESSION_STATE['start'] = current_session_start_ms
             # Solo actualizar lastActive si no se hizo un reset para evitar sobrescribir 'sessionStart'
             db.collection('state').document('nowPlaying').set({'lastActive': int(time.time() * 1000)}, merge=True)
             print(" [SISTEMA] Continuidad detectada. No se requiere limpieza de jornada.")
@@ -293,9 +350,12 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
         'songId': filename,
         'title': clean_title(filename),
         'currentTime': 0,
+        'startedAt': int(time.time() * 1000),
         'totalTime': 0,
         'lastActive': int(time.time() * 1000)
     })
+    PROGRESS_STATE['file'] = filename
+    PROGRESS_STATE['total'] = -1
     db.collection('state').document('cooldowns').set({filename: int(time.time() * 1000)}, merge=True)
     try:
         stats_ref = db.collection('statistics')
@@ -328,34 +388,59 @@ async def get_next_song(local_filenames):
         report_error("Error obteniendo siguiente canción", e)
     return random.choice(local_filenames) if local_filenames else None
 
-async def admin_commands_listener(ws, local_filenames, current_playing_file):
-    while True:
-        try:
-            force_ref = db.collection('commands').document('forcePlay')
-            force_doc = force_ref.get()
-            if force_doc.exists:
-                fname = force_doc.to_dict().get('filename')
-                force_ref.delete()
-                if fname: await play_song_on_kodi(ws, fname, current_playing_file)
+def submit_to_loop(coro):
+    """Ejecuta una corrutina en el bucle principal desde el hilo de un watcher."""
+    if MAIN_LOOP and MAIN_LOOP.is_running():
+        asyncio.run_coroutine_threadsafe(coro, MAIN_LOOP)
 
-            skip_ref = db.collection('commands').document('skipCurrent')
-            if skip_ref.get().exists:
-                skip_ref.delete()
-                await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.Stop", "params": {"playerid": 1}, "id": "skip"}))
-        except Exception as e:
-            report_error("Error escuchando comandos de admin", e)
-        await asyncio.sleep(2)
+def setup_commands_watchers(ws, current_playing_file):
+    """Escucha en tiempo real los comandos del panel admin. Antes se sondeaban
+    cada 2 s (~86.000 lecturas/día); con listeners el coste es cero si no hay
+    comandos. El snapshot inicial consume comandos pendientes al arrancar."""
+    commands_ref = db.collection('commands')
+
+    def on_force(doc_snapshot, changes, read_time):
+        for doc_snap in doc_snapshot:
+            if not doc_snap.exists:
+                continue
+            fname = (doc_snap.to_dict() or {}).get('filename')
+            try:
+                doc_snap.reference.delete()
+            except Exception as e:
+                report_error("Error borrando comando forcePlay", e)
+            if fname:
+                submit_to_loop(play_song_on_kodi(ws, fname, current_playing_file))
+
+    def on_skip(doc_snapshot, changes, read_time):
+        for doc_snap in doc_snapshot:
+            if not doc_snap.exists:
+                continue
+            try:
+                doc_snap.reference.delete()
+            except Exception as e:
+                report_error("Error borrando comando skipCurrent", e)
+            submit_to_loop(ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.Stop", "params": {"playerid": 1}, "id": "skip"})))
+
+    commands_ref.document('forcePlay').on_snapshot(on_force)
+    commands_ref.document('skipCurrent').on_snapshot(on_skip)
 
 async def progress_tracker(ws, current_playing_file):
+    """Sondea Kodi en local y escribe en Firestore lo mínimo:
+    - heartbeat lastActive cada 60 s (antes cada 5 s = ~17.000 escrituras/día);
+    - la duración la escribe el handler de 'progress' una vez por canción.
+    La web calcula el progreso en local con 'startedAt'."""
+    last_heartbeat_ms = 0
     while True:
         try:
+            now_ms = int(time.time() * 1000)
             if current_playing_file[0]:
                 await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetProperties", "params": {"playerid": 1, "properties": ["time", "totaltime"]}, "id": "progress"}))
-            else:
-                db.collection('state').document('nowPlaying').set({'lastActive': int(time.time() * 1000)}, merge=True)
+            if now_ms - last_heartbeat_ms >= 60000:
+                last_heartbeat_ms = now_ms
+                db.collection('state').document('nowPlaying').set({'lastActive': now_ms}, merge=True)
         except Exception as e:
             report_error("Error siguiendo progreso de Kodi", e)
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
 
 def aggregate_vote_event(event_ref, session_key, session_start):
     """Cuenta un vote_event una sola vez por jornada, dentro de una transacción."""
@@ -368,16 +453,16 @@ def aggregate_vote_event(event_ref, session_key, session_start):
         return False
 
     user_snapshot = db.collection('users').document(data.get('userId', '')).get()
-    song_snapshot = db.collection('catalog').document('full_list').get()
-    if not user_snapshot.exists or not song_snapshot.exists:
+    if not user_snapshot.exists:
         logger.warning('Evento descartado por referencias inexistentes: %s', event_ref.id)
         event_ref.delete()
         return False
     user_data = user_snapshot.to_dict() or {}
     expected_name = user_data.get('djName') or 'ANONYMOUS'
-    catalog_song = next((song for song in (song_snapshot.to_dict() or {}).get('songs', [])
-                          if song.get('id') == data.get('songId')), None)
-    if not catalog_song or catalog_song.get('title') != data.get('title') or data.get('voterName') != expected_name:
+    # Catálogo en memoria (lo mantienen sync_local_files y el refresco periódico):
+    # evita releer un documento de ~200 KB por cada voto agregado.
+    catalog_title = CATALOG_CACHE.get(data.get('songId'))
+    if catalog_title is None or catalog_title != data.get('title') or data.get('voterName') != expected_name:
         logger.warning('Evento descartado por metadatos incoherentes: %s', event_ref.id)
         event_ref.delete()
         return False
@@ -416,11 +501,38 @@ def aggregate_vote_event(event_ref, session_key, session_start):
 
     return apply_event(transaction)
 
-async def vote_events_writer(session_start):
-    """Agrega eventos confirmados por la web a las estadísticas protegidas."""
-    session_key = str(session_start)
+def setup_vote_events_watch():
+    """Escucha en tiempo real los eventos de voto. Antes se escaneaba toda la
+    colección cada 3 s (la mayor fuente de lecturas de la factura, millones al
+    mes); con listener solo se leen los eventos nuevos.
+    Nota: si run_forever reinicia main(), se registra otro watcher; es inocuo
+    porque aggregate_vote_event es idempotente (countedSession)."""
+    def on_events(col_snapshot, changes, read_time):
+        session_start = SESSION_STATE['start'] or session_start_ms()
+        docs = ([change.document for change in changes if change.type.name in ('ADDED', 'MODIFIED')]
+                if changes is not None else list(col_snapshot))
+        for event in docs:
+            data = event.to_dict() or {}
+            if data.get('kind') != 'vote_event':
+                continue
+            if data.get('userId'):
+                SESSION_USER_IDS.add(data['userId'])
+            event_ts = int(data.get('ts', 0) or 0)
+            if event_ts >= session_start and not data.get('countedSession'):
+                try:
+                    aggregate_vote_event(event.reference, str(session_start), session_start)
+                except Exception as e:
+                    report_error(f"Error agregando evento {event.id}", e)
+
+    db.collection_group('voteEvents').on_snapshot(on_events)
+
+async def vote_events_cleanup_loop():
+    """Limpieza y red de seguridad, ahora cada hora (antes cada 3 s):
+    - elimina eventos legacy en statistics (migración) y eventos caducados;
+    - re-agrega eventos sin contar por si el watcher hubiera perdido alguno."""
     while True:
         try:
+            session_start = SESSION_STATE['start'] or session_start_ms()
             for legacy_event in db.collection('statistics').stream():
                 if (legacy_event.to_dict() or {}).get('kind') == 'vote_event':
                     legacy_event.reference.delete()
@@ -432,18 +544,14 @@ async def vote_events_writer(session_start):
                 event_ts = int(event_data.get('ts', 0) or 0)
                 if event_ts < session_start or (event_data.get('countedSession') and event_ts < cutoff):
                     event.reference.delete()
-            events = [event for event in all_events
-                      if int((event.to_dict() or {}).get('ts', 0) or 0) >= session_start
-                      and not (event.to_dict() or {}).get('countedSession')]
-            events.sort(key=lambda event: int((event.to_dict() or {}).get('ts', 0) or 0))
-            for event in events[:100]:
-                try:
-                    aggregate_vote_event(event.reference, session_key, session_start)
-                except Exception as e:
-                    report_error(f"Error agregando evento {event.id}", e)
+                elif event_ts >= session_start and not event_data.get('countedSession'):
+                    try:
+                        aggregate_vote_event(event.reference, str(session_start), session_start)
+                    except Exception as e:
+                        report_error(f"Error agregando evento {event.id}", e)
         except Exception as e:
-            report_error("Error leyendo eventos de voto", e)
-        await asyncio.sleep(3)
+            report_error("Error en limpieza de eventos de voto", e)
+        await asyncio.sleep(3600)
 
 async def bridge_status_writer(current_playing_file, session_start):
     """Publica un heartbeat para diagnóstico desde el panel y la web."""
@@ -462,30 +570,21 @@ async def bridge_status_writer(current_playing_file, session_start):
             })
         except Exception as e:
             report_error("Error publicando heartbeat", e)
-        await asyncio.sleep(15)
+        await asyncio.sleep(60)
 
 async def active_users_writer():
-    """Escribe cada 15s el número de usuarios con canciones activas en la cola.
-    Así la web lee state/active_users y no necesita leer toda la colección
-    'users' (necesario para endurecer las reglas de seguridad)."""
+    """Publica cada 120 s cuántos usuarios han participado en la jornada.
+    Antes leía TODA la colección 'users' cada 15 s (millones de lecturas/mes);
+    ahora el número se deriva de los eventos que ya escucha el watcher."""
     while True:
         try:
-            queue_keys = set()
-            for song in db.collection('songs').stream():
-                queue_keys.add(song.id)
-            count = 0
-            if queue_keys:
-                for user in db.collection('users').stream():
-                    d = user.to_dict()
-                    if queue_keys.intersection(d.get('proposals') or []) or queue_keys.intersection(d.get('votes') or []):
-                        count += 1
             db.collection('state').document('active_users').set({
-                'count': count,
+                'count': len(SESSION_USER_IDS),
                 'updatedAt': int(time.time() * 1000)
             })
         except Exception as e:
             print(f" Error contador usuarios activos: {e}")
-        await asyncio.sleep(15)
+        await asyncio.sleep(120)
 
 async def session_watchdog():
     """Comprueba cada 60s si toca iniciar una nueva jornada (reset a las 2:00).
@@ -499,6 +598,8 @@ async def session_watchdog():
         await asyncio.sleep(60)
 
 async def main():
+    global MAIN_LOOP
+    MAIN_LOOP = asyncio.get_running_loop()
     local_filenames = sync_local_files()
     connection_tasks = active_connection_tasks
     connection_tasks.clear()
@@ -511,6 +612,7 @@ async def main():
 
     await check_for_new_session()
     session_start = session_start_ms()
+    SESSION_STATE['start'] = session_start
 
     uri = f"ws://{KODI_USER}:{KODI_PASS}@{KODI_IP}:{KODI_PORT}/jsonrpc"
     async with websockets.connect(uri) as ws:
@@ -518,13 +620,16 @@ async def main():
         current_playing_file = [None]
         for task_coro in (
             progress_tracker(ws, current_playing_file),
-            admin_commands_listener(ws, local_filenames, current_playing_file),
             session_watchdog(),
             active_users_writer(),
-            vote_events_writer(session_start),
+            vote_events_cleanup_loop(),
             bridge_status_writer(current_playing_file, session_start),
+            catalog_cache_refresher(),
         ):
             spawn_connection_task(task_coro)
+        # Watchers de Firestore: viven en hilos del SDK (no en el pool asyncio).
+        setup_commands_watchers(ws, current_playing_file)
+        setup_vote_events_watch()
         await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetActivePlayers", "id": "check_active"}))
 
         while True:
@@ -549,13 +654,20 @@ async def main():
                 if "time" in res and current_playing_file[0]:
                     cur = res["time"].get("seconds",0) + res["time"].get("minutes",0)*60
                     tot = res["totaltime"].get("seconds",0) + res["totaltime"].get("minutes",0)*60
-                    db.collection('state').document('nowPlaying').set({
-                        'songId': current_playing_file[0],
-                        'title': clean_title(current_playing_file[0]),
-                        'currentTime': cur,
-                        'totalTime': tot,
-                        'lastActive': int(time.time() * 1000)
-                    })
+                    now_ms = int(time.time() * 1000)
+                    # Solo se escribe cuando cambia la duración conocida (una vez
+                    # por canción): la web calcula el progreso con startedAt.
+                    if tot and (current_playing_file[0] != PROGRESS_STATE['file'] or tot != PROGRESS_STATE['total']):
+                        PROGRESS_STATE['file'] = current_playing_file[0]
+                        PROGRESS_STATE['total'] = tot
+                        db.collection('state').document('nowPlaying').set({
+                            'songId': current_playing_file[0],
+                            'title': clean_title(current_playing_file[0]),
+                            'currentTime': cur,
+                            'totalTime': tot,
+                            'startedAt': now_ms - int(cur * 1000),
+                            'lastActive': now_ms
+                        }, merge=True)
     for task in connection_tasks:
         task.cancel()
     if connection_tasks:

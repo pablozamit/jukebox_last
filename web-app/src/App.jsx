@@ -39,8 +39,7 @@ function firebaseErrorMessage(error) {
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
-  const [serverTimeOffset, setServerTimeOffset] = useState(0);
-  const serverTimeOffsetRef = useRef(0);
+  const serverTimeOffsetRef = useRef(0); // offset cliente→Firestore para getServerTime()
 
   useEffect(() => {
     const fetchServerTimeOffset = async () => {
@@ -53,12 +52,10 @@ export default function App() {
           const serverTime = docSnap.data().serverTimestamp.toMillis();
           const clientTime = Date.now();
           const offset = serverTime - clientTime;
-          setServerTimeOffset(offset);
           serverTimeOffsetRef.current = offset; // Update ref for immediate use
         }
       } catch (error) {
         console.error("Error fetching server time offset:", error);
-        setServerTimeOffset(0); // Fallback to client time
         serverTimeOffsetRef.current = 0;
       }
     };
@@ -251,21 +248,27 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // C1: el catálogo solo cambia cuando edita el admin, así que se lee UNA vez por
+  // sesión con getDoc en lugar de mantener un listener abierto (~200 KB por visita).
+  // La copia en localStorage muestra el catálogo al instante mientras se refresca.
   useEffect(() => {
-    const catalogRef = doc(db, 'catalog', 'full_list');
-    const unsubscribe = onSnapshot(catalogRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const songs = docSnap.data().songs || [];
-        setCatalog(songs);
-        localStorage.setItem('jukebox-catalog-v2', JSON.stringify(songs));
+    const fetchCatalog = async () => {
+      try {
+        const catalogRef = doc(db, 'catalog', 'full_list');
+        const docSnap = await getDoc(catalogRef);
+        if (docSnap.exists()) {
+          const songs = docSnap.data().songs || [];
+          setCatalog(songs);
+          localStorage.setItem('jukebox-catalog-v2', JSON.stringify(songs));
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('Firebase catalog fetch error:', error);
+        setLoading(false);
+        toast(`Catálogo: ${firebaseErrorMessage(error)}`, 'error');
       }
-      setLoading(false);
-    }, (error) => {
-      console.error('Firebase catalog listener error:', error);
-      setLoading(false);
-      toast(`Catálogo: ${firebaseErrorMessage(error)}`, 'error');
-    });
-    return () => unsubscribe();
+    };
+    fetchCatalog();
   }, [toast]);
 
   useEffect(() => {
@@ -818,9 +821,24 @@ export default function App() {
 
   const visibleCatalog = filteredCatalog.slice(0, visibleCount);
 
+  // B1: el bridge solo escribe nowPlaying una vez por canción (con startedAt, epoch ms);
+  // el progreso se calcula en local con el reloj del servidor y se refresca con el tic de 10s.
+  const calculateElapsed = () => {
+    if (!nowPlaying) return 0;
+    let elapsed;
+    if (nowPlaying.startedAt) {
+      elapsed = (getServerTime() - nowPlaying.startedAt) / 1000;
+    } else if (typeof nowPlaying.currentTime === 'number') {
+      elapsed = nowPlaying.currentTime; // compatibilidad con nowPlaying antiguos (bridge sin actualizar)
+    } else {
+      return 0;
+    }
+    return Math.min(Math.max(elapsed, 0), nowPlaying.totalTime || elapsed);
+  };
+
   const calculateProgress = () => {
     if (!nowPlaying || !nowPlaying.totalTime || nowPlaying.totalTime === 0) return 0;
-    return (nowPlaying.currentTime / nowPlaying.totalTime) * 100;
+    return (calculateElapsed() / nowPlaying.totalTime) * 100;
   };
 
   const formatTime = (seconds) => {
@@ -1165,6 +1183,9 @@ export default function App() {
                 if (!npSong) return null;
 
                 const hasVotedForCurrentSong = userVotes.includes(npSong.id);
+                const songCooldown = cooldowns[npSong.id];
+                const isCoolingDown = songCooldown && (currentTimestamp - songCooldown < 3600000);
+                const limitReached = userVotes.length >= MAX_VOTES;
                 const isDisabled = hasVotedForCurrentSong || limitReached || !isBridgeActive || isCoolingDown;
 
                 return (
@@ -1202,7 +1223,7 @@ export default function App() {
                   />
                 </div>
                 <div className={`flex justify-between text-xs font-medium ${isCatrina ? 'text-brand-gold/50' : 'text-zinc-500'}`}>
-                  <span>{nowPlaying ? formatTime(nowPlaying.currentTime) : '00:00'}</span>
+                  <span>{nowPlaying ? formatTime(calculateElapsed()) : '00:00'}</span>
                   <span>{nowPlaying ? formatTime(nowPlaying.totalTime) : '00:00'}</span>
                 </div>
               </div>
