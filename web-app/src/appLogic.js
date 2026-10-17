@@ -16,3 +16,12 @@ export function isSongPlaying(nowPlaying, song) {
 export function nextTriviaWindow(now, windowMs) {
   return (Math.floor(now / windowMs) + 1) * windowMs;
 }
+
+export function timestampMillis(value) {
+  try {
+    const millis = typeof value === 'number' ? value : value?.toMillis?.();
+    return Number.isFinite(millis) && millis > 0 ? millis : 0;
+  } catch {
+    return 0;
+  }
+}

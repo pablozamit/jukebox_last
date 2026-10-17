@@ -1,0 +1,206 @@
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Bell, ChevronDown, ChevronUp, Compass, Expand, MapPin, Shirt, Users, X } from 'lucide-react';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { SOCIAL_ZONES } from '../../shared/socialCatalog.mjs';
+import { db } from './firebase';
+import { useSocialPresence } from './hooks/useSocialPresence';
+import { socialRequest } from './socialApi';
+import { SOCIAL_TEXT as T, SOCIAL_ZONE_TEXT, INVITE_TEXT, socialErrorMessage } from './socialText.mjs';
+import SocialAvatar from './SocialAvatar';
+import SocialPeopleList from './SocialPeopleList';
+import SocialInvitationInbox from './SocialInvitationInbox';
+import DjCard from './DjCard';
+import AvatarWardrobe from './AvatarWardrobe';
+import { useSocialDialogFocus } from './hooks/useSocialDialogFocus';
+import './SocialMapPanel.css';
+
+const SocialMapScene = lazy(() => import('./SocialMapScene'));
+
+export default function SocialMapPanel({ userId, isRegistered, userData, catalog = [], lang = 'es', onRegister = () => {}, getServerTime = Date.now }) {
+  return <SocialPanelErrorBoundary lang={lang}><SocialMapPanelSession key={userId || 'guest'} userId={userId} isRegistered={isRegistered} userData={userData} catalog={catalog} lang={lang} onRegister={onRegister} getServerTime={getServerTime} /></SocialPanelErrorBoundary>;
+}
+
+class SocialPanelErrorBoundary extends Component {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    const language = this.props.lang === 'en' ? 'en' : 'es';
+    const t = T[language];
+    if (this.state.hasError) return <section className="social-panel social-panel-error" aria-label={t.title}><strong>{t.title}</strong><p role="alert">{t.offline}</p><button type="button" className="social-primary-button" onClick={() => this.setState({ hasError: false })}>{t.retry}</button></section>;
+    return this.props.children;
+  }
+}
+
+function SocialMapPanelSession({ userId, isRegistered, userData, catalog = [], lang = 'es', onRegister = () => {}, getServerTime = Date.now }) {
+  const language = lang === 'en' ? 'en' : 'es';
+  const t = T[language];
+  const [expanded, setExpanded] = useState(false);
+  const [large, setLarge] = useState(false);
+  const [selectedUid, setSelectedUid] = useState(null);
+  const [selectedCard, setSelectedCard] = useState(null);
+  const [cardLoading, setCardLoading] = useState(false);
+  const [wardrobeOpen, setWardrobeOpen] = useState(false);
+  const [favoriteOpen, setFavoriteOpen] = useState(false);
+  const [favoriteSearch, setFavoriteSearch] = useState('');
+  const [peopleTab, setPeopleTab] = useState('map');
+  const [blockedOpen, setBlockedOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [inventoryState, setInventoryState] = useState({ userId: null, items: [] });
+  const [pointsOverride, setPointsOverride] = useState(null);
+  const panelRef = useRef(null);
+  const returnFocusRef = useRef(null);
+  const cardRequestRef = useRef(0);
+  const expansionInitializedRef = useRef(false);
+  const collapsedButtonRef = useRef(null);
+  const expandedCloseRef = useRef(null);
+  const favoriteDialogRef = useSocialDialogFocus(() => setFavoriteOpen(false), favoriteOpen);
+  const { profile, people, presence, isVisible, count, invitations, blockedIds, stale, error: initError, refresh, show, hide, act } = useSocialPresence({ userId, isRegistered, expanded, getServerTime, lang: language });
+  const visiblePeopleLabel = count === 1 ? (language === 'en' ? 'person visible on the map' : 'persona visible en el mapa') : t.visibleCount;
+
+  const songs = useMemo(() => {
+    if (Array.isArray(catalog)) return catalog.filter(song => song?.id && song?.title);
+    return Object.entries(catalog || {}).map(([id, song]) => ({ id, ...song })).filter(song => song?.id && song?.title);
+  }, [catalog]);
+  const matchingSongs = useMemo(() => {
+    const needle = favoriteSearch.trim().toLocaleLowerCase(language);
+    return songs.filter(song => !needle || `${song.title} ${song.artist || ''}`.toLocaleLowerCase(language).includes(needle)).slice(0, 30);
+  }, [songs, favoriteSearch, language]);
+  const publicPeople = useMemo(() => people.filter(person => !blockedIds.has(person.uid)), [people, blockedIds]);
+  const mapPeople = useMemo(() => presence.filter(person => !blockedIds.has(person.uid)), [presence, blockedIds]);
+  const inventory = isRegistered && wardrobeOpen && inventoryState.userId === userId ? inventoryState.items : [];
+  const points = pointsOverride && pointsOverride.base === userData?.points ? pointsOverride.value : userData?.points || 0;
+
+  useEffect(() => {
+    if (!userId || !isRegistered || !wardrobeOpen) return undefined;
+    return onSnapshot(collection(db, 'socialUsers', userId, 'inventory'), snapshot => setInventoryState({ userId, items: snapshot.docs.map(item => ({ itemId: item.id, ...item.data() })) }), () => {});
+  }, [userId, isRegistered, wardrobeOpen]);
+  useEffect(() => {
+    if (!expansionInitializedRef.current) { expansionInitializedRef.current = true; return undefined; }
+    const frame = requestAnimationFrame(() => (expanded ? expandedCloseRef.current : collapsedButtonRef.current)?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [expanded]);
+  const closeCard = useCallback(() => {
+    cardRequestRef.current += 1;
+    setSelectedUid(null); setSelectedCard(null); setCardLoading(false);
+    requestAnimationFrame(() => returnFocusRef.current?.focus?.());
+  }, []);
+
+  useEffect(() => {
+    if (selectedUid && !(selectedUid === userId ? isVisible : publicPeople.some(person => person.uid === selectedUid))) cardRequestRef.current += 1;
+  }, [selectedUid, userId, isVisible, publicPeople]);
+
+  useEffect(() => {
+    if (!selectedCard) return undefined;
+    const onKeyDown = event => { if (event.key === 'Escape') closeCard(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedCard, closeCard]);
+
+  const openCard = useCallback(async uid => {
+    const person = publicPeople.find(item => item.uid === uid);
+    if (uid !== userId && !person) return;
+    if (uid === userId && !isVisible) {
+      setMessage(t.errorNoPresence);
+      return;
+    }
+    const requestToken = cardRequestRef.current + 1;
+    cardRequestRef.current = requestToken;
+    returnFocusRef.current = document.activeElement;
+    setSelectedUid(uid); setCardLoading(true); setSelectedCard(null);
+    try {
+      const data = await socialRequest('card', { uid });
+      const targetStillVisible = uid === userId ? isVisible : publicPeople.some(item => item.uid === uid);
+      if (requestToken === cardRequestRef.current && targetStillVisible) setSelectedCard(data.card || null);
+    } catch (error) {
+      if (requestToken === cardRequestRef.current) { setMessage(socialErrorMessage(error, language)); setSelectedUid(null); }
+    } finally { if (requestToken === cardRequestRef.current) setCardLoading(false); }
+  }, [publicPeople, userId, isVisible, t.errorNoPresence, language]);
+
+  const withBusy = useCallback(async (fn, rethrow = false) => {
+    setBusy(true); setMessage('');
+    try { return await fn(); }
+    catch (error) { setMessage(error?.message === t.errorNoPresence ? t.errorNoPresence : socialErrorMessage(error, language)); if (rethrow) throw error; return null; }
+    finally { setBusy(false); }
+  }, [t.errorNoPresence, language]);
+
+  const setPresenceZone = zone => withBusy(async () => {
+    await show(zone);
+    await refresh();
+    setMessage('');
+  });
+  const hidePresence = () => withBusy(async () => { await hide(); closeCard(); setMessage(''); });
+  const sendInvite = type => withBusy(async () => {
+    if (!isVisible) throw new Error(t.errorNoPresence);
+    const recipient = selectedUid;
+    await act('invite', { recipientId: recipient, type, requestId: makeRequestId() });
+    setMessage(`${t.inviteSent}: ${INVITE_TEXT[type]?.[language] || type}`);
+  });
+  const inviteAction = (id, response) => withBusy(() => act('respond', { id, response }));
+  const cancelInvite = id => withBusy(() => act('cancel', { id }));
+  const muteInvites = value => withBusy(() => act('preferences', { muteInvites: value }));
+  const blockPerson = uid => withBusy(async () => { await act('block', { uid }); closeCard(); });
+  const unblockPerson = uid => withBusy(() => act('unblock', { uid }));
+  const equipItem = itemId => withBusy(async () => { await act('equip', { itemId }); await refresh(); }, true);
+  const buyItem = itemId => withBusy(async () => {
+    const result = await act('buy', { itemId, requestId: makeRequestId() });
+    if (Number.isFinite(result?.points)) setPointsOverride({ base: userData?.points, value: result.points });
+  }, true);
+
+  const saveFavorite = song => withBusy(async () => {
+    const favoriteSong = song ? { id: song.id, title: song.title } : null;
+    await act('favorite', { songId: favoriteSong?.id || null });
+    setFavoriteOpen(false); setFavoriteSearch('');
+  });
+
+  const invitationRows = invitations.map(invitation => ({ ...invitation, direction: invitation.recipientId === userId ? 'incoming' : 'outgoing', currentUserId: userId }));
+  const ownPresence = presence.find(person => person.uid === userId);
+  const currentEquipped = profile?.equipped || ownPresence?.equipped;
+  const favoriteSong = profile?.favoriteSong;
+  const selectedCardIsCurrent = selectedUid === userId ? isVisible : publicPeople.some(person => person.uid === selectedUid);
+  const closeExpanded = () => { setExpanded(false); setLarge(false); setPeopleTab('map'); };
+
+  return <section ref={panelRef} className={`social-panel ${expanded ? 'is-expanded' : 'is-collapsed'} ${large ? 'is-large' : ''}`} aria-label={t.title}>
+    {!expanded ? <div className="social-collapsed-row">
+      <button ref={collapsedButtonRef} type="button" className="social-collapsed-main" onClick={() => setExpanded(true)} aria-expanded="false">
+        <span className="social-live-glyph"><span /></span><span className="social-title-copy"><strong>{t.title}</strong><small>{count} {visiblePeopleLabel}</small></span><ChevronDown size={18} />
+      </button>
+      {invitations.some(item => item.status === 'pending') && <button type="button" className="social-invitation-badge" onClick={() => setExpanded(true)} aria-label={t.invitations}><Bell size={15} /><b>{invitations.filter(item => item.status === 'pending').length}</b></button>}
+    </div> : <>
+      <header className="social-panel-header">
+        <div className="social-panel-heading"><span className="social-live-glyph"><span /></span><div><span className="social-eyebrow">{t.title}</span><p><Users size={14} />{count} {visiblePeopleLabel}{stale && <em>{t.stale}</em>}</p></div></div>
+        <div className="social-panel-tools">
+          {isVisible && <button type="button" className="social-control-button" onClick={hidePresence} disabled={busy}><MapPin size={15} />{t.hide}</button>}
+          <button type="button" className="social-icon-button" onClick={() => setLarge(value => !value)} aria-label={large ? t.restore : t.expand}>{large ? <X size={18} /> : <Expand size={17} />}</button>
+          <button ref={expandedCloseRef} type="button" className="social-icon-button" onClick={closeExpanded} aria-label={t.close}><ChevronUp size={18} /></button>
+        </div>
+      </header>
+      <p className="social-presence-help">{t.presenceHelp}</p>
+      {(message || initError) && <div className="social-status-message" role="status">{message || initError}{initError && !message && <button type="button" className="social-text-button" onClick={refresh}>{t.retry}</button>}</div>}
+      {stale && <div className="social-status-message is-warning" role="status">{t.stale}</div>}
+      <SocialInvitationInbox invitations={invitationRows} lang={language} onRespond={inviteAction} onCancel={cancelInvite} onMute={muteInvites} muteInvites={!!profile?.muteInvites} isRegistered={isRegistered} />
+
+      <div className="social-presence-controls">
+        {isVisible ? <label className="social-zone-select"><Compass size={16} /><span>{t.chooseZone}</span><select aria-label={t.chooseZone} value={profile.zone || 'entrance'} disabled={busy} onChange={event => setPresenceZone(event.target.value)}>{SOCIAL_ZONES.map(zone => <option key={zone.id} value={zone.id}>{SOCIAL_ZONE_TEXT[zone.id]?.[language] || zone.label[language]}</option>)}</select></label> : <div className="social-appear-controls">
+          <label className="social-zone-select"><Compass size={16} /><span>{t.chooseZone}</span><select aria-label={t.chooseZone} defaultValue="terrace" id={`social-zone-${userId || 'guest'}`}>{SOCIAL_ZONES.map(zone => <option key={zone.id} value={zone.id}>{SOCIAL_ZONE_TEXT[zone.id]?.[language] || zone.label[language]}</option>)}</select></label>
+          {isRegistered ? <button type="button" className="social-primary-button" disabled={busy} onClick={() => setPresenceZone(document.getElementById(`social-zone-${userId || 'guest'}`)?.value || 'terrace')}>{t.show}</button> : <button type="button" className="social-primary-button" onClick={onRegister}>{t.registerButton}</button>}
+        </div>}
+        {isRegistered && <div className="social-own-actions"><button type="button" className="social-avatar-entry" onClick={() => setWardrobeOpen(true)}><SocialAvatar equipped={currentEquipped} size={34} />{t.wardrobe}<Shirt size={15} /></button><button type="button" className="social-text-button" onClick={() => setFavoriteOpen(true)}><span aria-hidden="true">♫</span>{favoriteSong?.title || t.favoritePicker}</button>{isVisible && <button type="button" className="social-text-button" onClick={() => openCard(userId)}>{t.ownCard}</button>}</div>}
+        {isRegistered && blockedIds.size > 0 && <><button type="button" className="social-text-button social-blocked-toggle" aria-expanded={blockedOpen} onClick={() => setBlockedOpen(value => !value)}>{t.blockedPeople} · {blockedIds.size}</button>{blockedOpen && <div className="social-blocked-list">{Array.from(blockedIds).map(uid => <div key={uid}><span>{people.find(person => person.uid === uid)?.name || 'DJ'}</span><button type="button" onClick={() => unblockPerson(uid)} disabled={busy}>{t.unblock}</button></div>)}</div>}</>}
+      </div>
+
+      <div className="social-view-tabs" role="tablist"><button type="button" role="tab" aria-selected={peopleTab === 'map'} onClick={() => setPeopleTab('map')}>{t.scene}</button><button type="button" role="tab" aria-selected={peopleTab === 'people'} onClick={() => setPeopleTab('people')}>{t.list} <b>{publicPeople.length}</b></button></div>
+      <div className="social-map-content">
+        {peopleTab === 'map' ? <Suspense fallback={<div className="social-map-loading" role="status">{t.loading}</div>}><SocialMapScene people={mapPeople} onSelect={openCard} lang={language} labels={{ scene: t.scene, mapFallback: t.mapFallback, empty: t.empty, terrace: SOCIAL_ZONE_TEXT.terrace[language], bar: SOCIAL_ZONE_TEXT.bar[language], pool: SOCIAL_ZONE_TEXT.pool[language], foosball: SOCIAL_ZONE_TEXT.foosball[language] }} /></Suspense> : <SocialPeopleList people={publicPeople} lang={language} onSelect={openCard} emptyText={t.empty} />}
+      </div>
+      {cardLoading && selectedCardIsCurrent && <div className="social-card-loading" role="status">{language === 'en' ? 'Opening DJ card…' : 'Abriendo la ficha…'}</div>}
+      {selectedCard && selectedCardIsCurrent && <DjCard card={selectedCard} lang={language} isOwn={selectedUid === userId} onClose={closeCard} onInvite={sendInvite} onBlock={blockPerson} onUnblock={unblockPerson} onWardrobe={() => { closeCard(); setWardrobeOpen(true); }} />}
+      {wardrobeOpen && <AvatarWardrobe profile={profile} inventory={inventory} points={points} lang={language} onClose={() => setWardrobeOpen(false)} onEquip={equipItem} onBuy={buyItem} />}
+      {favoriteOpen && <div className="social-wardrobe-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setFavoriteOpen(false); }}><section ref={favoriteDialogRef} className="social-favorite-picker" role="dialog" aria-modal="true" aria-labelledby="social-favorite-title" tabIndex={-1}><header><div><span className="social-eyebrow">{t.favorite}</span><h2 id="social-favorite-title">{t.favoritePicker}</h2></div><button type="button" className="social-icon-button" onClick={() => setFavoriteOpen(false)} aria-label={t.closeButton}><X size={18} /></button></header><input type="search" value={favoriteSearch} onChange={event => setFavoriteSearch(event.target.value)} placeholder={t.searchSongs} /><div className="social-song-list">{matchingSongs.map(song => <button type="button" key={song.id} onClick={() => saveFavorite(song)} disabled={busy}><span><strong>{song.title}</strong><small>{song.artist}</small></span><span>♫</span></button>)}{matchingSongs.length === 0 && <p className="social-empty">{t.noSongs}</p>}</div>{favoriteSong && <button type="button" className="social-text-button" onClick={() => saveFavorite(null)} disabled={busy}>{t.clearFavorite}</button>}</section></div>}
+    </>}
+  </section>;
+}
+
+function makeRequestId() {
+  return globalThis.crypto?.randomUUID?.() || `social-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}

@@ -5,6 +5,7 @@ import { db } from './firebase';
 import { useTheme } from './ThemeContext';
 import { useToast } from './Toast';
 import { triviaQuestions } from './triviaQuestions';
+import { timestampMillis } from './appLogic';
 
 const WINDOW_MS = 30 * 60 * 1000;       // Cada media hora hay una ronda
 // La bolita está visible toda la media hora; desaparece al jugar hasta la siguiente ronda.
@@ -43,7 +44,7 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
   const timeInWindow = now % WINDOW_MS;
   const giftVisible = timeInWindow < GIFT_VISIBLE_MS;
   const answeredThisWindow = (answeredRound.windowId === windowId && answeredRound.done)
-    || (lastTriviaAt && (now - lastTriviaAt.toMillis()) < WINDOW_MS);
+    || (timestampMillis(lastTriviaAt) > 0 && (now - timestampMillis(lastTriviaAt)) < WINDOW_MS);
 
   // Reloj interno para saber cuándo aparece/desaparece la bolita
   useEffect(() => {

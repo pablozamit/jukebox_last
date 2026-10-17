@@ -21,11 +21,16 @@ export function useUserSession({ toast, t }) {
 
   useEffect(() => {
     let unsubUser = null;
+    let sessionVersion = 0;
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const version = ++sessionVersion;
       if (unsubUser) {
         unsubUser();
         unsubUser = null;
       }
+      setUserData(null);
+      setUserProposals([]);
+      setUserVotes([]);
       if (user) {
         setUserId(user.uid);
         setIsRegistered(!!user.email);
@@ -36,10 +41,13 @@ export function useUserSession({ toast, t }) {
             await setDoc(userRef, { proposals: [], votes: [] });
           }
         } catch (error) {
+          if (version !== sessionVersion) return;
           console.error('Firebase user initialization error:', error);
           toast(`Perfil: ${firebaseErrorMessage(error)}`, 'error');
         }
+        if (version !== sessionVersion) return;
         unsubUser = onSnapshot(userRef, (docSnap) => {
+          if (version !== sessionVersion) return;
           if (docSnap.exists()) {
             const data = docSnap.data();
             setUserProposals(data.proposals || []);
@@ -59,6 +67,7 @@ export function useUserSession({ toast, t }) {
       }
     });
     return () => {
+      sessionVersion += 1;
       unsubscribe();
       if (unsubUser) unsubUser();
     };

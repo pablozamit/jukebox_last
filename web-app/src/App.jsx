@@ -1,6 +1,6 @@
 import { useEffect, useState, lazy, Suspense, useMemo } from 'react';
 import { collection, doc, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, SOCIAL_MAP_ENABLED, IS_LOCAL_DEMO } from './firebase';
 import { translations } from './translations';
 import { useTheme } from './ThemeContext';
 import { useToast } from './Toast';
@@ -37,6 +37,7 @@ import {
 
 const Profile = lazy(() => import('./Profile'));
 const StatsModal = lazy(() => import('./StatsModal'));
+const SocialMapPanel = lazy(() => import('./SocialMapPanel'));
 
 export default function App() {
   const { theme } = useTheme();
@@ -427,6 +428,7 @@ export default function App() {
 
       {/* ===== MAIN ===== */}
       <main className="p-4 space-y-6 max-w-lg mx-auto">
+        {IS_LOCAL_DEMO && <p className="text-center text-xs text-theme-muted" role="status">{lang === 'en' ? 'Local preview · test data' : 'Vista local · datos de prueba'}</p>}
         <button
           onClick={() => { setHelpStep(0); setShowHelp(true); }}
           className={`w-full flex items-center justify-center gap-2 py-2 transition-colors text-sm font-medium ${isCatrina ? 'text-brand-gold/30 hover:text-brand-gold' : 'text-zinc-500 hover:text-brand-neon-purple'}`}
@@ -460,6 +462,20 @@ export default function App() {
           formatTime={formatTime}
           t={t}
         />
+
+        {SOCIAL_MAP_ENABLED && (
+          <Suspense fallback={null}>
+            <SocialMapPanel
+              userId={userId}
+              isRegistered={isRegistered}
+              userData={userData}
+              catalog={catalog}
+              lang={lang}
+              getServerTime={getServerTime}
+              onRegister={() => { setAuthMode('register'); setShowRegister(true); }}
+            />
+          </Suspense>
+        )}
 
         {nightlyTop && (
           <NightlyTopBanner nightlyTop={nightlyTop} isCatrina={isCatrina} mainTextClass={mainTextClass} t={t} />
@@ -670,7 +686,17 @@ export default function App() {
             t={t}
             activeQueue={activeQueue}
             onClose={() => setShowProfile(false)}
-            onLogout={handleLogout}
+            onLogout={async () => {
+              if (SOCIAL_MAP_ENABLED && isRegistered) {
+                try {
+                  const { socialRequest } = await import('./socialApi');
+                  await socialRequest('hide');
+                } catch {
+                  // A closed connection cannot be renewed; its server lease expires.
+                }
+              }
+              await handleLogout();
+            }}
           />
         </Suspense>
       )}

@@ -20,6 +20,8 @@ GoogleService-Info.plist
 !.github/workflows/*.json
 !vercel.json
 !firebase.json
+!firebase.local.json
+!firestore.indexes.json
 
 # Python
 __pycache__/
@@ -36,3 +38,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Generated local social artifacts
+functions/src/generated/
+.firebase/
+test-results/
+python-bridge/.social-outbox/

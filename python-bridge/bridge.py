@@ -1,10 +1,11 @@
-import asyncio, json, os, glob, random, time, logging
+import asyncio, json, os, glob, random, time, logging, uuid, threading
 from pathlib import Path
-from datetime import datetime, time as dt_time, timedelta
+from datetime import datetime, time as dt_time, timedelta, timezone
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
 import websockets
+from social_events import LocalOutbox, certified_playback_attribution, certified_support_uids, complete_night_close, effective_peak_votes, event_id, event_in_queue_generation, participation_event, peak_event, playback_capture_snapshot, playback_events, playback_settlement_id, publish_certified, queue_identity_matches, settlement_changes, should_track_playback_settlement, social_session_id, song_peak_document_id, utc_iso
 
 load_dotenv()
 
@@ -16,6 +17,13 @@ VIDEO_FOLDER_PATH = os.getenv("VIDEO_FOLDER_PATH", "C:/Users/lacat/Videos/Videoc
 VIDEO_ROOT = Path(VIDEO_FOLDER_PATH).expanduser().resolve()
 FIREBASE_CRED_PATH = os.getenv("FIREBASE_CREDENTIALS_JSON", "./serviceAccountKey.json")
 BRIDGE_VERSION = "2.2.0"
+SOCIAL_OUTBOX_PATH = Path(os.getenv(
+    "SOCIAL_EVENTS_OUTBOX_PATH",
+    str(Path.home() / ".jukebox-social" / "social-events-outbox.json"),
+))
+SOCIAL_OUTBOX = LocalOutbox(SOCIAL_OUTBOX_PATH)
+SOCIAL_PUBLISH_LOCK = threading.Lock()
+SOCIAL_CLOSE_LOCK = threading.RLock()
 pending_kodi_requests = {}
 active_connection_tasks = set()
 playback_lock = asyncio.Lock()
@@ -28,6 +36,154 @@ logging.basicConfig(
 
 def report_error(context, error):
     logger.exception("%s: %s", context, error)
+
+def flush_social_outbox():
+    with SOCIAL_PUBLISH_LOCK:
+        try:
+            return publish_certified(SOCIAL_OUTBOX, db.collection('socialEvents'), logger)
+        except Exception as error:
+            report_error("Outbox social local no disponible; quedan gaps de evidencia", error)
+            return (0, 1)
+
+async def social_outbox_retry_loop():
+    """Retry certified social events without making music depend on Firestore."""
+    while True:
+        try:
+            await asyncio.to_thread(flush_social_outbox)
+            pending_closures = await asyncio.to_thread(SOCIAL_OUTBOX.pending_night_closures)
+            for pending in pending_closures:
+                await asyncio.to_thread(
+                    close_social_night, None, pending["sessionId"],
+                    pending.get("eventStartMs"), pending.get("eventEndMs"),
+                )
+            pending_settlements = await asyncio.to_thread(SOCIAL_OUTBOX.pending_settlements)
+            for settlement in pending_settlements:
+                await asyncio.to_thread(process_playback_settlement, settlement)
+        except Exception as error:
+            report_error("No se pudo recorrer outbox social; nuevo intento en 30s", error)
+        await asyncio.sleep(30)
+
+def close_social_night(occurred_at=None, session_id=None, event_start_ms=None, event_end_ms=None):
+    with SOCIAL_CLOSE_LOCK:
+        return _close_social_night(occurred_at, session_id, event_start_ms, event_end_ms)
+
+def _close_social_night(occurred_at=None, session_id=None, event_start_ms=None, event_end_ms=None):
+    occurred_at = occurred_at or datetime.now(timezone.utc)
+    session_id = session_id or social_session_id(occurred_at - timedelta(seconds=1))
+    key = f"night-close:{session_id}"
+    if event_start_ms is not None and event_end_ms is not None:
+        SOCIAL_OUTBOX.put_if_absent(key, {
+            "status": "pending_close", "kind": "night_close", "sessionId": session_id,
+            "occurredAt": utc_iso(occurred_at), "eventStartMs": event_start_ms,
+            "eventEndMs": event_end_ms, "events": [],
+        })
+    pending = SOCIAL_OUTBOX.get(key)
+    event_start_ms = (pending or {}).get("eventStartMs", event_start_ms)
+    event_end_ms = (pending or {}).get("eventEndMs", event_end_ms)
+    if event_start_ms is not None and event_end_ms is not None:
+        try:
+            drain_session_vote_events(event_start_ms, event_end_ms)
+        except Exception as error:
+            logger.exception("No se puede drenar la jornada %s; se conserva el cierre para reintento: %s", session_id, error)
+            return False
+    flush_social_outbox()
+    def read_durable_peaks():
+        peaks = {}
+        for snapshot in db.collection('socialSongPeaks').where('sessionId', '==', session_id).stream():
+            peak = snapshot.to_dict() or {}
+            song_id = peak.get('songId')
+            if not song_id:
+                continue
+            peaks[song_id] = peak
+        return peaks
+
+    events = complete_night_close(
+        SOCIAL_OUTBOX, session_id, occurred_at, read_durable_peaks,
+        event_start_ms=event_start_ms, event_end_ms=event_end_ms,
+    )
+    if events is None:
+        logger.warning("Cierre social %s persistido como pendiente; reintento al recuperar conexión", session_id)
+        return True
+    if not events:
+        logger.info("Sin propuestas con votos en la jornada %s; no se concede logro de máximo", session_id)
+        return True
+    _, failed = flush_social_outbox()
+    if not failed and not any(entry.get("key") == key for entry in SOCIAL_OUTBOX.entries()):
+        SOCIAL_OUTBOX.clear_nightly(session_id)
+    return True
+
+def drain_session_vote_events(start_ms, end_ms):
+    """Validate all prior-session events before rollover clears user token arrays."""
+    session_key = str(start_ms)
+    events = [
+        snapshot for snapshot in db.collection_group('voteEvents').stream()
+        if (snapshot.to_dict() or {}).get('kind') == 'vote_event'
+        and start_ms <= int((snapshot.to_dict() or {}).get('ts', 0) or 0) < end_ms
+    ]
+    for snapshot in events:
+        aggregate_vote_event(snapshot.reference, session_key, start_ms, raise_on_social_error=True)
+
+def drain_song_vote_events(song_id, session_start):
+    """Make pending valid contributions visible before a song is certified as played."""
+    song_snapshot = db.collection('songs').document(song_id).get()
+    queue_created_at = song_snapshot.create_time if song_snapshot.exists else None
+    for snapshot in db.collection('songs').document(song_id).collection('voteEvents').stream():
+        data = snapshot.to_dict() or {}
+        event_ts = int(data.get('ts', 0) or 0)
+        if data.get('kind') == 'vote_event' and event_ts >= session_start and event_in_queue_generation(snapshot.create_time, queue_created_at):
+            aggregate_vote_event(snapshot.reference, str(session_start), session_start, raise_on_social_error=True)
+
+def update_social_song_peak(session_id, song_id, peak_votes, proposer_uids=None, occurred_at=None, source_id=None):
+    """Keep a private, durable per-session peak independent of participation dedupe."""
+    ref = db.collection('socialSongPeaks').document(song_peak_document_id(session_id, song_id))
+    transaction = db.transaction()
+
+    @firestore.transactional
+    def apply(tx):
+        snapshot = next(tx.get(ref), None)
+        current = snapshot.to_dict() if snapshot and snapshot.exists else {}
+        proposers = set(current.get('proposerUids', []) or []) | set(proposer_uids or [])
+        peak = max(int(current.get('peakVotes', 0) or 0), int(peak_votes or 0))
+        tx.set(ref, {
+            'sessionId': session_id,
+            'songId': song_id,
+            'peakVotes': peak,
+            'proposerUids': sorted(proposers),
+            'updatedAt': int(time.time() * 1000),
+        }, merge=False)
+        return {'peakVotes': peak, 'proposerUids': sorted(proposers)}
+
+    result = apply(transaction)
+    if result['peakVotes'] >= 10:
+        for uid in result['proposerUids']:
+            event = peak_event(
+                uid=uid, song_id=song_id, session_id=session_id,
+                occurred_at=occurred_at or datetime.now(timezone.utc),
+                peak_votes=result['peakVotes'], source_id=source_id or song_peak_document_id(session_id, song_id),
+            )
+            if SOCIAL_OUTBOX.add_certified_event(f"peak:{event['id']}", event):
+                flush_social_outbox()
+
+def certified_song_support_uids(song_id, session_key, queue_created_at=None):
+    """Unique current token holders with vote/proposal events already validated by the bridge."""
+    events = db.collection('songs').document(song_id).collection('voteEvents').where(
+        'countedSession', '==', str(session_key),
+    ).stream()
+    certified_uids = {
+        str(data['userId'])
+        for snapshot in events
+        if event_in_queue_generation(snapshot.create_time, queue_created_at)
+        and (data := (snapshot.to_dict() or {})).get('kind') == 'vote_event'
+        and data.get('type') in ('vote', 'proposal') and data.get('userId')
+    }
+    users_ref = db.collection('users')
+    token_uids = {
+        snapshot.id for snapshot in users_ref.where('proposals', 'array_contains', song_id).stream()
+    }
+    token_uids.update(
+        snapshot.id for snapshot in users_ref.where('votes', 'array_contains', song_id).stream()
+    )
+    return certified_support_uids(certified_uids, token_uids)
 
 def session_start_ms(now=None):
     now = now or datetime.now()
@@ -172,8 +328,10 @@ async def clear_all_data(session_start=None):
                 'lastActive': int(time.time() * 1000),
             }, merge=True)
         print(" [SISTEMA] ¡Base de datos reseteada para la nueva sesión!")
+        return True
     except Exception as e:
         report_error("Error en limpieza total", e)
+        return False
 
 async def check_for_new_session():
     """Comprueba si toca resetear según la fecha de calendario (pasadas las 2 AM)."""
@@ -216,7 +374,26 @@ async def check_for_new_session():
 
         if should_reset:
             print(f" [SISTEMA] Nueva jornada detectada ({now.strftime('%Y-%m-%d %H:%M')}). Realizando limpieza total.")
-            await clear_all_data(current_session_start_ms)
+            try:
+                prior_session_id = social_session_id(
+                    datetime.fromtimestamp(current_session_start_ms / 1000, tz=timezone.utc) - timedelta(milliseconds=1)
+                )
+                prior_start_local = datetime.fromtimestamp(current_session_start_ms / 1000) - timedelta(days=1)
+                prior_start_ms = int(prior_start_local.timestamp() * 1000)
+                closed = await asyncio.to_thread(
+                    close_social_night, datetime.now(timezone.utc), prior_session_id,
+                    prior_start_ms, current_session_start_ms,
+                )
+                if closed is False:
+                    logger.warning("Rollover pospuesto: quedan voteEvents anteriores por drenar")
+                    return
+            except Exception as error:
+                # Preserve the old queue and token arrays so a later retry can certify them.
+                report_error("No se pudo drenar la jornada social; rollover se reintentará", error)
+                return
+            if not await clear_all_data(current_session_start_ms):
+                logger.warning("Rollover incompleto: se reintentará sin marcar lastResetDate")
+                return
             # Guardar la fecha y hora actual como la última vez que se realizó el reset
             db.collection('state').document('nowPlaying').set({
                 'lastResetDate': now.isoformat(),
@@ -234,68 +411,181 @@ async def check_for_new_session():
     except Exception as e:
         report_error("Error al comprobar sesión", e)
 
-async def reset_song_and_tokens(filename):
-    """Limpieza de votos y tokens + puntos y leaderboard (DJ de la noche/semana)."""
-    try:
-        db.collection('songs').document(filename).delete()
+def capture_playback_attribution(filename):
+    """Read the final queue tally and users before the bridge clears their arrays."""
+    current_session_start = SESSION_STATE['start'] or session_start_ms()
+    drain_song_vote_events(filename, current_session_start)
+    song_ref = db.collection('songs').document(filename)
+    song_snap = song_ref.get()
+    song_data = song_snap.to_dict() or {} if song_snap.exists else {}
+    queue_id = song_data.get('bridgeQueueId')
+    if song_snap.exists and not queue_id:
+        candidate = uuid.uuid4().hex
+        transaction = db.transaction()
 
-        users_ref = db.collection('users')
-        batch = db.batch()
-        c = 0
-        affected = []  # (uid, name, pts)
+        @firestore.transactional
+        def ensure_queue_id(tx):
+            current = next(tx.get(song_ref), None)
+            if not current or not current.exists:
+                return None
+            current_data = current.to_dict() or {}
+            existing = current_data.get('bridgeQueueId')
+            if existing:
+                return existing
+            tx.update(song_ref, {'bridgeQueueId': candidate})
+            return candidate
 
-        prop_docs = users_ref.where("proposals", "array_contains", filename).stream()
-        for udoc in prop_docs:
-            batch.update(udoc.reference, {'proposals': firestore.ArrayRemove([filename])})
-            affected.append((udoc.id, udoc.to_dict().get('djName') or 'Anónimo', 10))
-            c += 1
-            if c >= 400:
-                batch.commit(); batch = db.batch(); c = 0
-        proposer_ids = {uid for uid, _, _ in affected}
+        queue_id = ensure_queue_id(transaction)
+    raw_votes = max(0, int(song_data.get('votes', 0) or 0))
+    certified_uids = certified_song_support_uids(filename, str(current_session_start), song_snap.create_time if song_snap.exists else None)
+    peak_votes, queue_identity = playback_capture_snapshot(
+        raw_votes,
+        certified_uids,
+        song_data if song_snap.exists else None,
+        queue_id,
+    )
+    users_ref = db.collection('users')
+    people = {}
+    for snapshot in users_ref.where('proposals', 'array_contains', filename).stream():
+        people[snapshot.id] = {'uid': snapshot.id, 'role': 'proposer', 'certified': snapshot.id in certified_uids}
+    for snapshot in users_ref.where('votes', 'array_contains', filename).stream():
+        people.setdefault(snapshot.id, {'uid': snapshot.id, 'role': 'voter', 'certified': snapshot.id in certified_uids})
+    return peak_votes, list(people.values()), queue_identity
 
-        vote_docs = users_ref.where("votes", "array_contains", filename).stream()
-        for udoc in vote_docs:
-            if udoc.id not in proposer_ids:
-                batch.update(udoc.reference, {'votes': firestore.ArrayRemove([filename])})
-                affected.append((udoc.id, udoc.to_dict().get('djName') or 'Anónimo', 5))
-                c += 1
-                if c >= 400:
-                    batch.commit(); batch = db.batch(); c = 0
 
-        if c > 0: batch.commit()
+def settle_playback_user(filename, playback_id, uid, captured_award=None):
+    """Atomically remove a user's token and grant their existing 10/5 points once."""
+    user_ref = db.collection('users').document(uid)
+    receipt_id = playback_settlement_id(playback_id, uid)
+    receipt_ref = db.collection('playbackSettlements').document(receipt_id)
+    night_ref = db.collection('leaderboard').document('noche')
+    week_ref = db.collection('leaderboard').document('semana')
+    today = datetime.now().astimezone().strftime('%Y-%m-%d')
+    transaction = db.transaction()
 
+    @firestore.transactional
+    def apply(tx):
+        receipt = next(tx.get(receipt_ref), None)
+        if receipt and receipt.exists:
+            return 0
+        user = next(tx.get(user_ref), None)
+        if not user or not user.exists:
+            return 0
+        user_data = user.to_dict() or {}
+        changes = settlement_changes(user_data, filename, today, captured_award)
+        if changes is None:
+            return 0
+        points = changes['award']
+        night = next(tx.get(night_ref), None)
+        week = next(tx.get(week_ref), None)
+        night_data = night.to_dict() if night and night.exists else {}
+        week_data = week.to_dict() if week and week.exists else {}
+        name = user_data.get('djName') or 'Anónimo'
+        for data in (night_data, week_data):
+            data.setdefault('points', {})[uid] = int(data.get('points', {}).get(uid, 0) or 0) + points
+            data.setdefault('names', {})[uid] = name
+        tx.update(user_ref, {
+            'proposals': changes['proposals'],
+            'votes': changes['votes'],
+            'points': changes['points'],
+            'totalPointsEarned': changes['totalPointsEarned'],
+            'visitDates': firestore.ArrayUnion([changes['visitDate']]),
+        })
+        tx.set(night_ref, night_data, merge=True)
+        tx.set(week_ref, week_data, merge=True)
+        tx.set(receipt_ref, {
+            'playbackId': playback_id,
+            'uid': uid,
+            'songId': filename,
+            'points': points,
+            'settledAt': int(time.time() * 1000),
+        })
+        return points
+
+    return apply(transaction)
+
+
+def delete_queue_if_unchanged(filename, queue_identity):
+    """Delete only the queue generation captured by this playback."""
+    song_ref = db.collection('songs').document(filename)
+    transaction = db.transaction()
+
+    @firestore.transactional
+    def apply(tx):
+        snapshot = next(tx.get(song_ref), None)
+        if not snapshot or not snapshot.exists:
+            return False
+        current = snapshot.to_dict() or {}
+        if not queue_identity_matches(queue_identity, current):
+            return False
+        tx.delete(song_ref)
+        return True
+
+    return apply(transaction)
+
+
+def process_playback_settlement(settlement):
+    """Retry persisted credits safely; receipt checks prevent replayed increments."""
+    playback_id = settlement['playbackId']
+    filename = settlement['songId']
+    settled = set(settlement.get('settledUids', []))
+    for uid in settlement.get('uids', []):
+        if uid in settled:
+            continue
         try:
-            today = datetime.now().strftime('%Y-%m-%d')
-            night_ref = db.collection('leaderboard').document('noche')
-            night_doc = night_ref.get()
-            if not night_doc.exists:
-                night_ref.set({'points': {}, 'names': {}}, merge=False) # Inicializar si no existe
+            settle_playback_user(filename, playback_id, uid, settlement.get('awards', {}).get(uid))
+            SOCIAL_OUTBOX.mark_settlement_user(playback_id, uid)
+            settled.add(uid)
+        except Exception as error:
+            logger.exception("Liquidación pendiente %s/%s; se reintentará sin repetir Kodi: %s", playback_id, uid, error)
+            return False
+    if settled >= set(settlement.get('uids', [])):
+        if not settlement.get('queueIdentity'):
+            # Random catalog playback (or a queue removed by the user) has no
+            # queue document to delete; captured user credits are already settled.
+            SOCIAL_OUTBOX.remove_settlement(playback_id)
+            return True
+        try:
+            delete_queue_if_unchanged(filename, settlement.get('queueIdentity'))
+        except Exception as error:
+            logger.exception("No se pudo verificar cola antes de borrar %s/%s: %s", playback_id, filename, error)
+            return False
+        SOCIAL_OUTBOX.remove_settlement(playback_id)
+        return True
+    return False
 
-            week_ref = db.collection('leaderboard').document('semana')
-            week_doc = week_ref.get()
-            if not week_doc.exists:
-                week_ref.set({'points': {}, 'names': {}}, merge=False) # Inicializar si no existe
 
-            for uid, name, pts in affected:
-                night_ref.update({
-                    f'points.{uid}': firestore.Increment(pts),
-                    f'names.{uid}': name
-                })
-                week_ref.update({
-                    f'points.{uid}': firestore.Increment(pts),
-                    f'names.{uid}': name
-                })
-                users_ref.document(uid).update({
-                    'points': firestore.Increment(pts),
-                    'totalPointsEarned': firestore.Increment(pts),
-                    'visitDates': firestore.ArrayUnion([today]),
-                })
-        except Exception as e:
-            print(f" Error puntos/leaderboard: {e}")
+async def reset_song_and_tokens(filename, playback_id, captured_attribution=None):
+    """Persist settlement intent before applying points and conditionally deleting its queue."""
+    try:
+        peak_votes, attribution, queue_identity = captured_attribution or capture_playback_attribution(filename)
+        uids = [person['uid'] for person in attribution if person.get('uid')]
+        awards = {
+            person['uid']: (10 if person.get('role') == 'proposer' else 5)
+            for person in attribution
+            if person.get('uid') and person.get('role') in ('proposer', 'voter')
+        }
+        if not should_track_playback_settlement(queue_identity, uids):
+            logger.info("Tema aleatorio %s sin cola ni atribuciones; no requiere liquidación", filename)
+            return
+        SOCIAL_OUTBOX.put_settlement(playback_id, filename, queue_identity, uids, awards)
+        settlement = next((item for item in SOCIAL_OUTBOX.pending_settlements()
+                           if item.get('playbackId') == playback_id), None)
+        if settlement:
+            await asyncio.to_thread(process_playback_settlement, settlement)
+        logger.info("[LIMPIEZA] Liquidación registrada para %s (%d atribuciones; pico %d)",
+                    filename, len(uids), peak_votes)
+    except Exception as error:
+        # The intent remains retryable if its local journal write succeeded.
+        report_error("No se pudo persistir liquidación de reproducción", error)
 
-        print(f" [LIMPIEZA] Votos y tokens reseteados para {filename} (+{sum(p for _, _, p in affected)} pts a {len(affected)} DJs)")
-    except Exception as e:
-        report_error("Error limpieza", e)
+
+async def capture_playback_attribution_bounded(filename, timeout=2):
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(capture_playback_attribution, filename), timeout=timeout)
+    except Exception as error:
+        report_error("Captura social de atribución agotó tiempo; reproducción continúa con gap", error)
+        return None
 
 def safe_video_path(filename):
     """Devuelve una ruta de vídeo confinada al directorio configurado."""
@@ -324,8 +614,35 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
         return False
 
     filepath = video_path.as_posix()
-    command_id = f"play:{filename}:{time.time_ns()}"
+    playback_id = uuid.uuid4().hex
+    command_id = f"play:{playback_id}"
     payload = {"jsonrpc": "2.0", "method": "Player.Open", "params": { "item": { "file": filepath } }, "id": command_id}
+
+    occurred_at = datetime.now(timezone.utc)
+    session_id = social_session_id(occurred_at)
+    captured_attribution = await capture_playback_attribution_bounded(filename)
+    if captured_attribution is not None:
+        peak_votes, attribution, queue_identity = captured_attribution
+    else:
+        # Continue playback; the durable record explicitly marks attribution missing.
+        captured_attribution = None
+        peak_votes, attribution, queue_identity = 0, [], None
+    captured_attribution = (peak_votes, attribution, queue_identity)
+    try:
+        SOCIAL_OUTBOX.put(playback_id, {
+            "status": "intent",
+            "playbackId": playback_id,
+            "songId": filename,
+            "sessionId": session_id,
+            "occurredAt": utc_iso(occurred_at),
+            "peakVotes": peak_votes,
+            "attribution": attribution,
+            "queueIdentity": queue_identity,
+            "attributionMissing": not bool(attribution),
+        })
+    except Exception as error:
+        # Local evidence failure must not block the music command.
+        report_error("No se pudo persistir intención de reproducción; gap social", error)
 
     loop = asyncio.get_running_loop()
     response_future = loop.create_future()
@@ -336,15 +653,67 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
             response = await asyncio.wait_for(response_future, timeout=8)
         except asyncio.TimeoutError:
             logger.error("Timeout esperando confirmación de Kodi: %s", filename)
+            try:
+                SOCIAL_OUTBOX.update(playback_id, status="uncertain", resolution="ack_timeout")
+            except Exception as error:
+                report_error("No se pudo marcar intención Kodi incierta en el outbox", error)
             return False
-        if response.get("error") or response.get("result") not in ("OK", True, None):
+        if response.get("error") or response.get("result") not in ("OK", True):
             logger.error("Kodi rechazó la reproducción de %s: %s", filename, response)
+            try:
+                SOCIAL_OUTBOX.update(playback_id, status="rejected", resolution="kodi_rejected")
+            except Exception as error:
+                report_error("No se pudo marcar rechazo Kodi en el outbox", error)
             return False
     finally:
         pending_kodi_requests.pop(command_id, None)
 
     current_playing_file[0] = filename
-    await reset_song_and_tokens(filename)
+    certified_at = datetime.now(timezone.utc)
+    try:
+        final_capture = await capture_playback_attribution_bounded(filename)
+        if final_capture is None:
+            raise TimeoutError("capture timeout")
+        final_peak, final_attribution, queue_identity = final_capture
+        peak_votes = max(peak_votes, final_peak)
+        people_by_uid = {person['uid']: person for person in attribution}
+        for person in final_attribution:
+            existing = people_by_uid.get(person['uid'])
+            if existing is None or person.get('role') == 'proposer':
+                people_by_uid[person['uid']] = person
+        attribution = list(people_by_uid.values())
+        captured_attribution = (peak_votes, attribution, queue_identity)
+    except Exception as error:
+        report_error("No se pudo completar atribución tras ACK; se usa captura previa y se registra gap", error)
+    try:
+        social_attribution = certified_playback_attribution(attribution)
+        events = playback_events(
+            playback_id=playback_id,
+            song_id=filename,
+            session_id=session_id,
+            occurred_at=occurred_at,
+            certified_at=certified_at,
+            source_id=playback_id,
+            peak_votes=peak_votes,
+            attribution=social_attribution,
+        )
+        try:
+            await asyncio.to_thread(
+                update_social_song_peak,
+                session_id, filename, peak_votes,
+                [person['uid'] for person in social_attribution if person.get('role') == 'proposer'],
+                occurred_at, playback_id,
+            )
+        except Exception as error:
+            # The local outbox still retains the peak and attribution for recovery.
+            report_error(f"No se pudo actualizar máximo durable de {filename}; gap potencial", error)
+        SOCIAL_OUTBOX.update(playback_id, status="certified", certifiedAt=utc_iso(certified_at),
+                             events=events, queueIdentity=queue_identity)
+        await asyncio.to_thread(flush_social_outbox)
+    except Exception as error:
+        # ACK is real, but a failed disk write cannot be reported as a certified event.
+        report_error("Kodi confirmó, pero no se pudo guardar evento social; gap de evidencia", error)
+    await reset_song_and_tokens(filename, playback_id, captured_attribution)
 
     db.collection('state').document('nowPlaying').set({
         'songId': filename,
@@ -442,15 +811,16 @@ async def progress_tracker(ws, current_playing_file):
             report_error("Error siguiendo progreso de Kodi", e)
         await asyncio.sleep(10)
 
-def aggregate_vote_event(event_ref, session_key, session_start):
+def aggregate_vote_event(event_ref, session_key, session_start, raise_on_social_error=False):
     """Cuenta un vote_event una sola vez por jornada, dentro de una transacción."""
     event_snapshot = event_ref.get()
     if not event_snapshot.exists:
         return False
     data = event_snapshot.to_dict() or {}
     event_ts = int(data.get('ts', 0) or 0)
-    if data.get('countedSession') == session_key or event_ts < session_start:
+    if event_ts < session_start:
         return False
+    already_counted = data.get('countedSession') == session_key
 
     user_snapshot = db.collection('users').document(data.get('userId', '')).get()
     if not user_snapshot.exists:
@@ -499,7 +869,52 @@ def aggregate_vote_event(event_ref, session_key, session_start):
         })
         return True
 
-    return apply_event(transaction)
+    counted = apply_event(transaction)
+    current_event = event_ref.get().to_dict() or {}
+    if counted or already_counted or current_event.get('countedSession') == session_key:
+        try:
+            kind = data.get('type')
+            song_id = data.get('songId')
+            uid = data.get('userId')
+            if kind in ('vote', 'proposal') and song_id and uid:
+                occurred_at = datetime.fromtimestamp(event_ts / 1000.0, tz=timezone.utc)
+                session_id = social_session_id(occurred_at)
+                social_id = event_id(kind, uid, song_id, session_id)
+                needs_event = not SOCIAL_OUTBOX.has_event(social_id, session_id)
+                source_id = event_ref.id
+                needs_peak_sync = not SOCIAL_OUTBOX.peak_is_synced(source_id, session_id)
+                if not needs_event and not needs_peak_sync:
+                    return counted
+                song_snapshot = db.collection('songs').document(song_id).get()
+                raw_votes = max(0, int((song_snapshot.to_dict() or {}).get('votes', 0) or 0)) if song_snapshot.exists else 0
+                supporters = certified_song_support_uids(song_id, session_key, song_snapshot.create_time if song_snapshot.exists else None)
+                peak_votes = effective_peak_votes(raw_votes, supporters)
+                event = participation_event(
+                    kind=kind,
+                    uid=uid,
+                    song_id=song_id,
+                    occurred_at=occurred_at,
+                    source_id=event_ref.id,
+                    peak_votes=peak_votes,
+                )
+                if needs_peak_sync:
+                    current_queue_event = song_snapshot.exists and event_in_queue_generation(event_snapshot.create_time, song_snapshot.create_time)
+                    update_social_song_peak(
+                        event['sessionId'], song_id, peak_votes,
+                        [uid] if kind == 'proposal' and current_queue_event else [], occurred_at, source_id,
+                    )
+                    SOCIAL_OUTBOX.mark_peak_synced(source_id, session_id)
+                added = SOCIAL_OUTBOX.add_certified_event(
+                    f"participation:{event['id']}", event, kind=kind,
+                ) if needs_event else False
+                if added:
+                    flush_social_outbox()
+        except Exception as error:
+            # The existing vote statistics remain authoritative; report the social evidence gap.
+            report_error(f"Evento musical validado pero outbox social falló: {event_ref.id}", error)
+            if raise_on_social_error:
+                raise
+    return counted
 
 def setup_vote_events_watch():
     """Escucha en tiempo real los eventos de voto. Antes se escaneaba toda la
@@ -518,7 +933,7 @@ def setup_vote_events_watch():
             if data.get('userId'):
                 SESSION_USER_IDS.add(data['userId'])
             event_ts = int(data.get('ts', 0) or 0)
-            if event_ts >= session_start and not data.get('countedSession'):
+            if event_ts >= session_start:
                 try:
                     aggregate_vote_event(event.reference, str(session_start), session_start)
                 except Exception as e:
@@ -538,13 +953,13 @@ async def vote_events_cleanup_loop():
                     legacy_event.reference.delete()
             all_events = [event for event in db.collection_group('voteEvents').stream()
                           if (event.to_dict() or {}).get('kind') == 'vote_event']
-            cutoff = int(time.time() * 1000) - (2 * 60 * 60 * 1000)
             for event in all_events:
                 event_data = event.to_dict() or {}
                 event_ts = int(event_data.get('ts', 0) or 0)
-                if event_ts < session_start or (event_data.get('countedSession') and event_ts < cutoff):
+                # Current-session events certify support until playback or rollover.
+                if event_ts < session_start:
                     event.reference.delete()
-                elif event_ts >= session_start and not event_data.get('countedSession'):
+                elif event_ts >= session_start:
                     try:
                         aggregate_vote_event(event.reference, str(session_start), session_start)
                     except Exception as e:
@@ -625,6 +1040,7 @@ async def main():
             vote_events_cleanup_loop(),
             bridge_status_writer(current_playing_file, session_start),
             catalog_cache_refresher(),
+            social_outbox_retry_loop(),
         ):
             spawn_connection_task(task_coro)
         # Watchers de Firestore: viven en hilos del SDK (no en el pool asyncio).

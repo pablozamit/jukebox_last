@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isSongPlaying, nextTriviaWindow, resolveSongId } from '../src/appLogic.js';
+import { isSongPlaying, nextTriviaWindow, resolveSongId, timestampMillis } from '../src/appLogic.js';
 
 test('resolveSongId prefers the bridge songId', () => {
   const songs = [{ id: 'file.mp4', title: 'Same title' }];
@@ -23,4 +23,12 @@ test('nextTriviaWindow returns the next half-hour boundary', () => {
   const windowMs = 30 * 60 * 1000;
   assert.equal(nextTriviaWindow(1, windowMs), windowMs);
   assert.equal(nextTriviaWindow(windowMs, windowMs), windowMs * 2);
+});
+
+test('trivia accepts numeric persisted times and legacy Timestamp without a render exception', () => {
+  assert.equal(timestampMillis(1792250000000), 1792250000000);
+  assert.equal(timestampMillis({ toMillis: () => 1792250000000 }), 1792250000000);
+  for (const bad of [null, undefined, NaN, Infinity, -1, '123', {}, { toMillis: () => { throw new Error('bad data'); } }]) {
+    assert.equal(timestampMillis(bad), 0);
+  }
 });
