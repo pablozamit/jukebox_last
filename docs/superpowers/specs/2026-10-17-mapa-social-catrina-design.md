@@ -1,7 +1,7 @@
 # La Catrina: mapa social y avatar de DJ
 
 Fecha: 17 de octubre de 2026. Rama: `feat/mejoras`.
-Estado: propuesta de diseño para revisión; no implementada.
+Estado: diseño aprobado por el usuario el 17 de octubre de 2026; implementación pendiente. Las decisiones descritas como propuestas forman parte del diseño aceptado. El plan técnico se revisa por separado.
 
 ## Propósito y acuerdos confirmados
 
@@ -78,7 +78,7 @@ Desde el perfil, «Mi muñeco» abre una previsualización y dos vistas: «Armar
 
 Propuesta económica: reutilizar el saldo `points` existente; mantener `totalPointsEarned` como progreso histórico. Gastar en ropa nunca reduce el nivel, borra logros ni altera las clasificaciones acumuladas. El canje existente de 50 puntos por un voto continúa disponible. La tienda explica que ropa y votos consumen el mismo saldo.
 
-Para la primera colección se propone una escala de 50, 100 y 200 puntos para artículos de tienda, ajustable en un catálogo central. Son precios propuestos, no valores previamente acordados ni desplegados. Los artículos de logro muestran su requisito, no un precio. El catálogo visual concreto se diseña antes de implementar el armario.
+Para la primera colección se establece una escala inicial de 50, 100 y 200 puntos para artículos de tienda, ajustable en un catálogo central. Son valores del diseño aprobado, todavía no desplegados. Los artículos de logro muestran su requisito, no un precio. El catálogo visual concreto se diseña antes de implementar el armario.
 
 ## Encaje técnico y evidencia del repositorio
 
@@ -123,6 +123,6 @@ La implementación concreta de autorización, caducidad e inventario debe defini
 9. El mapa funciona con controles táctiles, tiene alternativa de lista de personas y respeta reducción de movimiento. La carga 3D y un fallo de red no inutilizan la música.
 10. Se ejecutan lint, tests, build, revisión del diff y pruebas de reglas y flujos sociales con dos sesiones. El despliegue real y su comprobación se reportan separados del funcionamiento local.
 
-## Revisión solicitada
+## Aprobación y siguiente etapa
 
-El concepto social y las dos vías de personalización están acordados. Este documento propone los detalles restantes en conjunto: ubicación del panel, visibilidad inicial oculta, identidad social registrada, flujo de invitaciones y reutilización del saldo existente. La revisión permite corregir estas decisiones antes de preparar el plan de implementación.
+El usuario aprobó este documento después de revisar el concepto social, las dos vías de personalización y los detalles propuestos: ubicación del panel, visibilidad inicial oculta, identidad social registrada, flujo de invitaciones y reutilización del saldo existente. La siguiente etapa es revisar el plan técnico y seleccionar su método de ejecución.
