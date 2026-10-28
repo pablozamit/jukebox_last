@@ -2,7 +2,9 @@
 
 Este documento es tu billete para que todo funcione sin sorpresas cuando llegues al local. Llévalo abierto en el móvil o sigue los pasos desde allí.
 
-> **⚠️ IMPORTANTE — Si ya tenías la v1 funcionando:** Esta es la v2, con muchas mejoras (trivia Kahoot cada 30 min, contador de usuarios activos en tiempo real, limpieza automática de jornada, leaderboard de DJ de la noche, etc.). Tienes que actualizar el bridge del bar. Sigue la sección [🔁 Actualizar de v1 a v2](#-actualizar-de-v1-a-v2) si YA tienes el bridge corriendo.
+> **Versión candidata:** validada con pruebas locales, no con Kodi ni el ordenador del bar. Una liquidación ambigua puede dejar una canción bloqueada para revisión; resuelve la operativa de revisión y prueba el recorrido real antes de usarla durante el servicio.
+
+> **Actualización desde v1:** Si hay una instalación v1 en el bar, sigue la sección [🔁 Actualizar de v1 a v2](#-actualizar-de-v1-a-v2) para reemplazar el puente y sus módulos.
 
 ---
 
@@ -10,24 +12,22 @@ Este documento es tu billete para que todo funcione sin sorpresas cuando llegues
 
 Para no depender de descargar cosas pesadas con el internet del bar, mete esto en tu USB desde casa y pásalo a una carpeta cualquiera en el escritorio del PC del bar (ej: `Carpeta Jukebox`):
 
-1. **El archivo `bridge.py`** (nueva versión v2): Está dentro de la carpeta `python-bridge` de tu proyecto.
-2. **El archivo `set_admin.py`**: También en `python-bridge`. Lo necesitarás para dar permisos de admin (solo una vez).
-3. **Este propio documento (`INSTRUCCIONES_BAR.md`)**: Para poder abrirlo y leerlo allí.
-4. **`serviceAccountKey.json`**: Tu clave secreta de administrador (ya está en la carpeta `python-bridge`).
-5. **El archivo `.env`**: Tu configuración del puente (cópialo de `.env.example` y rellena los valores del bar).
-6. **`deploy_rules.py`** (NUEVO en v2): Script para desplegar las reglas de seguridad actualizadas.
-7. **`firestore.rules`** (NUEVO en v2): Reglas de seguridad canónicas. También puedes copiar `security-rules.txt` (idéntico, para pegado manual en la consola de Firebase).
-8. **`firebase.json`** (NUEVO en v2): Configuración de Firebase Hosting.
-9. *(Opcional pero recomendado)* **El instalador de Python**: Descárgalo desde python.org en casa y mételo al pendrive por si el PC del bar no lo tuviera instalado.
-10. *(Opcional)* **El instalador de Kodi**: Por si tuvieras que instalarlo de cero.
+1. **`bridge.py`, `social_events.py`, `bridge_runtime.py` y `requirements.txt`**, desde `python-bridge`.
+2. **`set_admin.py`**, si aún necesitas conceder permisos a la cuenta admin.
+3. Este documento (`INSTRUCCIONES_BAR.md`).
+4. El archivo `.env` con la configuración local del bar.
+5. La credencial de Firebase, solo si el responsable la ha preparado y autorizado para ese equipo.
+6. *(Opcional)* Instaladores de Python y Kodi.
 
-**Nota:** Los archivos `bridge.py`, `set_admin.py`, `deploy_rules.py`, el `.env`, el `.json`, `firestore.rules` y `firebase.json` **deben estar juntos** en la misma carpeta cuando los pegues en el PC del bar. Y por supuesto, asegúrate de que el disco duro externo o la carpeta con todos los **archivos de vídeo de karaoke/música** esté conectada al PC.
+**Nota:** Conserva juntos `bridge.py`, `social_events.py`, `bridge_runtime.py` y los módulos Python requeridos y `.env`. Mantén las credenciales protegidas y conecta el disco o carpeta de vídeos.
+
+**Estado:** este manual no confirma que el puente esté instalado, arrancado o probado en el bar. Valida esos pasos allí antes de dar el sistema por operativo.
 
 ---
 
 ## 🔁 ACTUALIZAR DE v1 A v2
 
-Si ya tenías el bridge v1 corriendo en el bar, esto es lo que cambia:
+Si existe una instalación v1 del puente en el bar, estos son los archivos que hay que actualizar:
 
 ### ¿Qué archivos tengo que reemplazar?
 
@@ -36,37 +36,14 @@ Solo necesitas copiar estos archivos nuevos a la carpeta del bar (sobrescribiend
 | Archivo | Acción |
 |---|---|
 | `bridge.py` | **Sobrescribir** — tiene funciones nuevas (contador de usuarios activos, watchdog de sesión, limpieza inteligente) |
-| `deploy_rules.py` | **Nuevo** — cópialo (no existía en v1) |
-| `firestore.rules` | **Nuevo** — cópialo (no existía en v1) |
-| `firebase.json` | **Nuevo** — cópialo (no existía en v1) |
-| `security-rules.txt` | **Sobrescribir** — reglas actualizadas para la trivia y votos gratis |
+| `social_events.py` | **Añadir** — módulo requerido por la versión actual del puente |
+| `bridge_runtime.py` | **Añadir** — módulo requerido por la versión actual del puente |
 
 **El `.env` y `serviceAccountKey.json` NO cambian.** Déjalos como están.
 
 ### ¿Tengo que instalar algo nuevo con pip?
 
-**No.** Las dependencias son las mismas. Si ya tenías instalado `firebase-admin`, `python-dotenv`, `websockets` y `requests`, no necesitas instalar nada más.
-
-### Desplegar las nuevas reglas de seguridad (IMPORTANTE)
-
-La v2 introduce nuevas funciones (trivia, propuestas gratis, contador de usuarios activos) que necesitan reglas de seguridad actualizadas. **Desde el PC del bar o desde casa**, con el bridge parado:
-
-```cmd
-python deploy_rules.py
-```
-
-Verás algo como:
-```
-✅ Reglas desplegadas correctamente. Ruleset: ...
-```
-
-Luego verifica que todo funciona (36/36 pruebas):
-
-```cmd
-python test_security_rules.py
-```
-
-Si ves `✅ 36/36`, estás listo.
+Comprueba e instala las dependencias de `requirements.txt`, incluida `tzdata` para el horario de Madrid en Windows.
 
 ### Arrancar el nuevo bridge
 
@@ -104,25 +81,9 @@ python set_admin.py admin@lacatrina.com
 
 Esto añade el UID del usuario a la colección `admins` de Firestore. Solo necesita hacerse **una vez**.
 
-### Reglas de seguridad (actualizadas para v2)
+### Reglas de seguridad
 
-Las reglas de seguridad v2 están **desplegadas y verificadas** (36/36 pruebas). Los archivos canónicos son `firestore.rules` (para deploy automático) y `security-rules.txt` (idéntico, para pegado manual en la consola de Firebase).
-
-**Es obligatorio desplegar las reglas nuevas** porque la v2 usa campos que la v1 no tenía (`freeProposals`, `lastTriviaAt`, etc.).
-
-Para desplegarlas:
-
-```cmd
-python deploy_rules.py
-```
-
-Y verifica que todo sigue funcionando con:
-
-```cmd
-python test_security_rules.py
-```
-
-También puedes pegarlas a mano en **Firestore Database > Rules** de la consola de Firebase (copia el contenido de `security-rules.txt`). Si algo fallara tras un cambio, vuelve atrás con `python deploy_rules.py --rollback-to <ruleset_anterior>`.
+Este manual no despliega ni valida reglas de Firebase. No ejecutes desde el bar scripts de despliegue o pruebas de reglas contra producción. Cualquier cambio requiere el procedimiento autorizado del proyecto y validación en emuladores.
 
 ---
 
@@ -144,7 +105,7 @@ En el PC físico del bar (es necesario que esté conectado al WiFi/cable):
 2. Abre la consola de Windows (Buscador > `cmd`).
 3. Lanza este comando para instalar lo que necesita tu programa Jukebox:
    ```cmd
-   pip install requests firebase-admin python-dotenv websockets
+   pip install -r requirements.txt
    ```
 
 ---
@@ -171,25 +132,19 @@ FIREBASE_CREDENTIALS_JSON=./serviceAccountKey.json
 
 ## 🚀 6. EL MOMENTO DE LA VERDAD (ESTRENO)
 
-1. **(NUEVO en v2)** Primero, despliega las reglas de seguridad:
-   ```cmd
-   python deploy_rules.py
-   ```
-   Y verifica: `python test_security_rules.py` (debe decir ✅ 36/36).
-
-2. Saca tu móvil y entra como Admin en el enlace web real de tu Jukebox añadiendo `/admin` al final (por ejemplo: `https://jukebox-last.vercel.app/admin`).
-3. **Inicia sesión** con el email y contraseña que creaste en el paso 2 (ej: `admin@lacatrina.com`).
-4. En el PC del bar (con Kodi minimizado por detrás), abre la consola de Windows y colócate en la carpeta donde metiste el `bridge.py`, el `.env` y la contraseña json.
-5. Ejecuta esto:
+1. Saca tu móvil y entra como Admin en el enlace web real de tu Jukebox añadiendo `/admin` al final (por ejemplo: `https://jukebox-last.vercel.app/admin`).
+2. **Inicia sesión** con el email y contraseña que creaste en el paso 2 (ej: `admin@lacatrina.com`).
+3. En el PC del bar (con Kodi minimizado por detrás), abre la consola de Windows y colócate en la carpeta donde metiste `bridge.py`, sus módulos Python, `.env` y la credencial autorizada.
+4. Ejecuta esto:
    ```cmd
    python bridge.py
    ```
-6. La consola mostrará:
+5. La consola mostrará:
    - `Inicializando Firebase...`
    - `Catálogo sincronizado: XXX canciones guardadas en 1 solo documento.`
    - `[SISTEMA]` mensajes de estado
    - `Conectado a Kodi.`
-7. Verás iluminarse tu móvil al instante con todas las canciones de tu carpeta. Prueba a darle al botón Verde (Force Play) a cualquier canción nueva y maravíllate viendo a Kodi empezar a reproducirla a los 2 segundos.
+6. Verás iluminarse tu móvil al instante con todas las canciones de tu carpeta. Prueba a darle al botón Verde (Force Play) a cualquier canción nueva y maravíllate viendo a Kodi empezar a reproducirla a los 2 segundos.
 
 ### Novedades de la v2 que verás en la web
 
@@ -212,16 +167,20 @@ Asegúrate de que los 4 paquetes están instalados.
 
 ### Error de permisos en Firebase
 
-Vuelve a desplegar las reglas:
-```cmd
-python deploy_rules.py
-```
+Detén el puente y consulta al responsable del proyecto. No despliegues reglas ni ejecutes pruebas de reglas contra producción desde el PC del bar.
 
 ### Kodi no responde
 
 - Asegúrate de que Kodi está abierto y en la pantalla principal (no en un menú).
 - Verifica que en Ajustes > Servicios > Control está activado "Permitir control remoto por HTTP".
 - Verifica que `KODI_PORT` en `.env` es `9090` (NO `8080` — el 8080 es el puerto web, el 9090 es el de WebSocket).
+- El arranque del bridge no confirma reproducción: marca Kodi como probado solo tras observar una canción de prueba en el equipo del bar.
+
+### Liquidación pendiente de revisión
+
+Una liquidación ambigua se conserva en el outbox local y la canción queda excluida de la selección mientras necesite revisión. No borres ni edites el outbox a ciegas; consulta al responsable y revisa `bridge_errors.log` para el diagnóstico.
+
+Un cambio en el perfil durante la liquidación puede activar esta revisión incluso cuando el voto no ha cambiado. No hay resolución automática. Si falta el marcador de jornada, el bridge conserva la cola y reanuda el cierre en la siguiente jornada. Detén cualquier bridge antiguo antes de iniciar el nuevo; el bloqueo de instancia solo protege las copias que comparten la carpeta del outbox.
 
 ### La trivia no aparece en la web
 
@@ -242,4 +201,4 @@ Esto lee el catálogo real de Firestore, extrae los artistas, y genera 100 pregu
 
 ---
 
-¡Y ya está! 🍷 Tírate una caña. Has creado el sistema y está funcionando local y remotamente de forma síncrona. Todo el bar puede entrar a tu Vercel y jugar con la máquina.
+Al completar la instalación, registra qué componentes arrancaron y qué comprobaciones hiciste en el propio bar. Este documento no demuestra que el puente esté instalado o validado allí.

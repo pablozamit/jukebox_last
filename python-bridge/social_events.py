@@ -61,6 +61,37 @@ def playback_settlement_id(playback_id: str, uid: str) -> str:
     ).encode("utf-8")).hexdigest()
 
 
+def json_safe_firestore_timestamp(value):
+    """Return a JSON-safe, precision-preserving Firestore timestamp value.
+
+    Firestore timestamps arrive as datetime subclasses and may carry nanoseconds
+    beyond Python datetime's microsecond field. Naive datetimes remain explicitly
+    naive so they never compare equal to an aware instant. Existing scalar values
+    (the legacy integer/string representation) are preserved as-is.
+    """
+    if not isinstance(value, datetime):
+        return value
+
+    is_aware = value.tzinfo is not None and value.utcoffset() is not None
+    nanosecond = int(getattr(value, "nanosecond", value.microsecond * 1000))
+    normalized = value.astimezone(timezone.utc) if is_aware else value
+    fraction = f"{nanosecond:09d}"
+    wall_time = normalized.strftime("%Y-%m-%dT%H:%M:%S")
+    if is_aware:
+        return f"datetime:utc:{wall_time}.{fraction}Z"
+    return f"datetime:naive:{wall_time}.{fraction}"
+
+
+def json_safe_first_voted_at(value):
+    """Compatibility-named wrapper for queue creation timestamps."""
+    return json_safe_firestore_timestamp(value)
+
+
+def token_snapshot_version(value):
+    """Normalize Firestore snapshot.update_time for durable token version checks."""
+    return json_safe_firestore_timestamp(value)
+
+
 def peak_event(*, uid: str, song_id: str, session_id: str, occurred_at: datetime,
                peak_votes: int, source_id: str) -> dict:
     if int(peak_votes) < 10:
@@ -79,7 +110,8 @@ def peak_event(*, uid: str, song_id: str, session_id: str, occurred_at: datetime
     return {"id": event_id("peak", uid, song_id, session_id), **record}
 
 
-def settlement_changes(user_data: dict, song_id: str, today: str, captured_award: int | None = None) -> dict | None:
+def settlement_changes(user_data: dict, song_id: str, today: str, captured_award: int | None = None,
+                       consume_token: bool = True) -> dict | None:
     """Compute the legacy token removal and 10/5 point grant from a transaction snapshot."""
     proposals = list(user_data.get("proposals") or [])
     votes = list(user_data.get("votes") or [])
@@ -93,8 +125,8 @@ def settlement_changes(user_data: dict, song_id: str, today: str, captured_award
         return None
     return {
         "award": award,
-        "proposals": [song for song in proposals if song != song_id],
-        "votes": [song for song in votes if song != song_id],
+        "proposals": [song for song in proposals if song != song_id] if consume_token else proposals,
+        "votes": [song for song in votes if song != song_id] if consume_token else votes,
         "points": int(user_data.get("points", 0) or 0) + award,
         "totalPointsEarned": int(user_data.get("totalPointsEarned", 0) or 0) + award,
         "visitDate": today,
@@ -113,7 +145,7 @@ def playback_capture_snapshot(raw_votes: int, support_uids, song_data: dict | No
     if song_data is None:
         return peak_votes, None
     queue_identity = {
-        "firstVotedAt": song_data.get("firstVotedAt"),
+        "firstVotedAt": json_safe_first_voted_at(song_data.get("firstVotedAt")),
         "bridgeQueueId": queue_id,
         "votes": max(0, int(raw_votes or 0)),
     }
@@ -140,15 +172,35 @@ def should_track_playback_settlement(queue_identity: dict | None, uids) -> bool:
     return bool(queue_identity) or bool(set(uids or []))
 
 
+def queue_generation_matches(captured: dict | None, current: dict | None) -> bool:
+    """Match a queue generation without treating later votes as a new queue."""
+    if not captured or not current:
+        return False
+    captured_id = captured.get("bridgeQueueId")
+    current_id = current.get("bridgeQueueId")
+    if captured_id or current_id:
+        return bool(captured_id) and captured_id == current_id
+    if captured.get("firstVotedAt") is None:
+        return False
+    current_first_voted_at = current.get("firstVotedAt")
+    if current_first_voted_at is None:
+        return False
+    return json_safe_first_voted_at(current_first_voted_at) == json_safe_first_voted_at(captured["firstVotedAt"])
+
+
 def queue_identity_matches(captured: dict | None, current: dict | None) -> bool:
-    """Guard against deleting a newer same-song queue after delayed settlement."""
+    """Legacy strict identity check, including the captured vote count."""
     if not captured or not current or captured.get("firstVotedAt") is None:
         return False
-    queue_id = captured.get("bridgeQueueId")
-    if queue_id and current.get("bridgeQueueId") != queue_id:
+    captured_id = captured.get("bridgeQueueId")
+    if captured_id and current.get("bridgeQueueId") != captured_id:
+        return False
+    current_first_voted_at = current.get("firstVotedAt")
+    if current_first_voted_at is None:
         return False
     return (
-        current.get("firstVotedAt") == captured["firstVotedAt"]
+        json_safe_first_voted_at(current_first_voted_at)
+        == json_safe_first_voted_at(captured["firstVotedAt"])
         and int(current.get("votes", 0) or 0) == int(captured.get("votes", -1))
     )
 
@@ -406,7 +458,8 @@ class LocalOutbox:
             self._write(data)
 
     def put_settlement(self, playback_id: str, song_id: str, queue_identity: dict | None,
-                       uids: list[str], awards: dict[str, int] | None = None) -> None:
+                       uids: list[str], awards: dict[str, int] | None = None,
+                       token_versions: dict[str, object] | None = None) -> None:
         with self._lock:
             data = self._read()
             data["settlements"].setdefault(playback_id, {
@@ -415,16 +468,51 @@ class LocalOutbox:
                 "queueIdentity": queue_identity,
                 "uids": sorted(set(uids)),
                 "awards": {uid: int(award) for uid, award in (awards or {}).items() if int(award) in (5, 10)},
+                "tokenVersions": {
+                    uid: token_snapshot_version(version)
+                    for uid, version in (token_versions or {}).items()
+                },
                 "settledUids": [],
             })
             data["settlements"][playback_id].setdefault(
                 "awards", {uid: int(award) for uid, award in (awards or {}).items() if int(award) in (5, 10)}
             )
+            data["settlements"][playback_id].setdefault(
+                "tokenVersions", {
+                    uid: token_snapshot_version(version)
+                    for uid, version in (token_versions or {}).items()
+                }
+            )
             self._write(data)
 
     def pending_settlements(self) -> list[dict]:
         with self._lock:
-            return [dict(**value) for value in self._read()["settlements"].values()]
+            return [
+                dict(**value) for value in self._read()["settlements"].values()
+                if not value.get("needsReview") or any(
+                    uid not in set(value.get("settledUids", []))
+                    and uid not in set(value.get("needsReview", {}))
+                    for uid in value.get("uids", [])
+                )
+            ]
+
+    def blocked_song_ids(self) -> set[str]:
+        """Return songs with any durable settlement, pending or awaiting review."""
+        with self._lock:
+            return {
+                settlement["songId"]
+                for settlement in self._read()["settlements"].values()
+                if settlement.get("songId")
+            }
+
+    def review_song_ids(self) -> set[str]:
+        """Return songs whose durable settlement has at least one UID in review."""
+        with self._lock:
+            return {
+                settlement["songId"]
+                for settlement in self._read()["settlements"].values()
+                if settlement.get("needsReview") and settlement.get("songId")
+            }
 
     def mark_settlement_user(self, playback_id: str, uid: str) -> None:
         with self._lock:
@@ -433,6 +521,16 @@ class LocalOutbox:
             if settlement is None:
                 return
             settlement["settledUids"] = sorted(set(settlement.get("settledUids", [])) | {uid})
+            self._write(data)
+
+    def mark_settlement_review(self, playback_id: str, uid: str, reason: str) -> None:
+        """Keep ambiguous settlement data durable while stopping automatic retries."""
+        with self._lock:
+            data = self._read()
+            settlement = data["settlements"].get(playback_id)
+            if settlement is None:
+                return
+            settlement.setdefault("needsReview", {})[uid] = str(reason)
             self._write(data)
 
     def remove_settlement(self, playback_id: str) -> None:

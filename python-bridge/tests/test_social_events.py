@@ -1,9 +1,11 @@
+import json
 import tempfile
 import unittest
 import sys
 import itertools
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from google.api_core.datetime_helpers import DatetimeWithNanoseconds
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -21,12 +23,15 @@ from social_events import (
     playback_event_id,
     playback_events,
     playback_settlement_id,
+    json_safe_first_voted_at,
     complete_night_close,
     publish_certified,
     queue_identity_matches,
+    queue_generation_matches,
     social_session_id,
     settlement_changes,
     should_track_playback_settlement,
+    token_snapshot_version,
 )
 
 
@@ -108,6 +113,61 @@ class SocialEventTests(unittest.TestCase):
         self.assertTrue(queue_identity_matches(queue_identity, {
             "firstVotedAt": 1234, "votes": raw_votes, "bridgeQueueId": "queue-generation-1",
         }))
+
+    def test_firestore_timestamp_is_json_safe_and_preserves_nanoseconds_and_timezone(self):
+        timestamp = DatetimeWithNanoseconds(
+            2026, 10, 17, 10, 20, 30, nanosecond=123456789,
+            tzinfo=timezone(timedelta(hours=2)),
+        )
+        same_in_utc = DatetimeWithNanoseconds(
+            2026, 10, 17, 8, 20, 30, nanosecond=123456789, tzinfo=timezone.utc,
+        )
+        different_nanoseconds = DatetimeWithNanoseconds(
+            2026, 10, 17, 8, 20, 30, nanosecond=123456788, tzinfo=timezone.utc,
+        )
+        naive = DatetimeWithNanoseconds(2026, 10, 17, 8, 20, 30, nanosecond=123456789)
+
+        normalized = json_safe_first_voted_at(timestamp)
+        self.assertEqual(normalized, "datetime:utc:2026-10-17T08:20:30.123456789Z")
+        self.assertEqual(normalized, json_safe_first_voted_at(same_in_utc))
+        self.assertNotEqual(normalized, json_safe_first_voted_at(different_nanoseconds))
+        self.assertNotEqual(normalized, json_safe_first_voted_at(naive))
+        self.assertEqual(json_safe_first_voted_at(1234), 1234)  # legacy numeric timestamp
+        self.assertEqual(token_snapshot_version(timestamp), normalized)
+
+        _, identity = playback_capture_snapshot(3, {"u1"}, {
+            "firstVotedAt": timestamp, "votes": 3,
+        }, "queue-1")
+        with tempfile.TemporaryDirectory() as tmp:
+            outbox = LocalOutbox(Path(tmp) / "outbox.json")
+            outbox.put_settlement("play-1", "song", identity, ["u1"], {"u1": 10})
+            restored = LocalOutbox(Path(tmp) / "outbox.json").pending_settlements()[0]
+        self.assertEqual(restored["queueIdentity"]["firstVotedAt"], normalized)
+        self.assertTrue(queue_generation_matches(identity, {
+            "firstVotedAt": same_in_utc, "votes": 9, "bridgeQueueId": "queue-1",
+        }))
+
+    def test_queue_generation_matches_vote_deltas_but_strict_identity_stays_compatible(self):
+        captured = {"firstVotedAt": 1000, "votes": 3, "bridgeQueueId": "queue-1"}
+        current = {"firstVotedAt": 1000, "votes": 5, "bridgeQueueId": "queue-1"}
+        self.assertTrue(queue_generation_matches(captured, current))
+        self.assertFalse(queue_identity_matches(captured, current))
+        self.assertFalse(queue_generation_matches(captured, {
+            "firstVotedAt": 1000, "votes": 5, "bridgeQueueId": "queue-2",
+        }))
+        self.assertTrue(queue_generation_matches(
+            {"bridgeQueueId": "queue-legacy"}, {"bridgeQueueId": "queue-legacy", "votes": 1},
+        ))
+        self.assertFalse(queue_generation_matches(
+            {"bridgeQueueId": "queue-legacy"}, {"bridgeQueueId": "queue-new", "votes": 1},
+        ))
+        self.assertTrue(queue_generation_matches(
+            {"firstVotedAt": 1000}, {"firstVotedAt": 1000, "votes": 20},
+        ))
+        self.assertTrue(queue_identity_matches(
+            {"firstVotedAt": 1000, "votes": 3},
+            {"firstVotedAt": 1000, "votes": 3, "bridgeQueueId": "legacy-upgrade"},
+        ))
 
     def test_play_evidence_excludes_uncertified_array_only_tokens(self):
         attribution = [
@@ -266,6 +326,10 @@ class SocialEventTests(unittest.TestCase):
         self.assertEqual(settlement_changes(vote, "s", "2026-10-17")["award"], 5)
         self.assertEqual(settlement_changes(proposal, "s", "2026-10-17")["proposals"], [])
         self.assertEqual(settlement_changes(proposal, "s", "2026-10-17")["votes"], [])
+        retained = settlement_changes(proposal, "s", "2026-10-17", 10, consume_token=False)
+        self.assertEqual(retained["proposals"], ["s"])
+        self.assertEqual(retained["votes"], ["s"])
+        self.assertEqual(retained["points"], 50)
         # A rollover may clear the arrays before retry; the captured award survives.
         self.assertEqual(settlement_changes({"proposals": [], "votes": [], "points": 10}, "s", "2026-10-17", 10)["award"], 10)
         self.assertEqual(settlement_changes({"proposals": [], "votes": [], "points": 10}, "s", "2026-10-17", 5)["award"], 5)
@@ -303,17 +367,61 @@ class SocialEventTests(unittest.TestCase):
             path = Path(tmp) / "outbox.json"
             first = LocalOutbox(path)
             identity = {"firstVotedAt": 1000, "votes": 3}
-            first.put_settlement("play-1", "song", identity, ["u1", "u2"], {"u1": 10, "u2": 5})
+            snapshot_time = DatetimeWithNanoseconds(
+                2026, 10, 17, 10, 20, 30, nanosecond=123456789, tzinfo=timezone.utc,
+            )
+            first.put_settlement(
+                "play-1", "song", identity, ["u1", "u2", "u3"],
+                {"u1": 10, "u2": 5, "u3": 5},
+                token_versions={"u1": snapshot_time},
+            )
             first.mark_settlement_user("play-1", "u1")
 
             restarted = LocalOutbox(path)
             pending = restarted.pending_settlements()[0]
             self.assertEqual(pending["settledUids"], ["u1"])
-            self.assertEqual(pending["awards"], {"u1": 10, "u2": 5})
+            self.assertEqual(pending["awards"], {"u1": 10, "u2": 5, "u3": 5})
+            self.assertEqual(
+                pending["tokenVersions"]["u1"], "datetime:utc:2026-10-17T10:20:30.123456789Z",
+            )
             self.assertTrue(queue_identity_matches(identity, {"firstVotedAt": 1000, "votes": 3}))
             self.assertFalse(queue_identity_matches(identity, {"firstVotedAt": 2000, "votes": 3}))
             self.assertFalse(queue_identity_matches(identity, {"firstVotedAt": 1000, "votes": 4}))
             self.assertFalse(queue_identity_matches(None, {"firstVotedAt": 1000, "votes": 3}))
+            self.assertEqual(restarted.blocked_song_ids(), {"song"})
+            self.assertEqual(restarted.review_song_ids(), set())
+
+            restarted.mark_settlement_review("play-1", "u2", "token version changed")
+            pending = restarted.pending_settlements()
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0]["uids"], ["u1", "u2", "u3"])
+            self.assertEqual(pending[0]["needsReview"], {"u2": "token version changed"})
+            self.assertEqual(restarted.blocked_song_ids(), {"song"})
+            self.assertEqual(restarted.review_song_ids(), {"song"})
+            restarted.mark_settlement_user("play-1", "u3")
+            self.assertEqual(restarted.pending_settlements(), [])
+            self.assertEqual(restarted.blocked_song_ids(), {"song"})
+            self.assertEqual(restarted.review_song_ids(), {"song"})
+            persisted = json.loads(path.read_text(encoding="utf-8"))["settlements"]["play-1"]
+            self.assertEqual(persisted["needsReview"], {"u2": "token version changed"})
+            self.assertEqual(persisted["uids"], ["u1", "u2", "u3"])
+            self.assertEqual(persisted["settledUids"], ["u1", "u3"])
+            restarted.put_settlement("play-empty", "song", identity, [])
+            self.assertEqual(
+                [item["playbackId"] for item in restarted.pending_settlements()], ["play-empty"],
+            )
+            restarted.mark_settlement_review("play-empty", "__queue__", "no-attribution")
+            self.assertEqual(restarted.pending_settlements(), [])
+            self.assertEqual(restarted.blocked_song_ids(), {"song"})
+
+            restarted.put_settlement("play-complete", "song-complete", identity, ["u1"])
+            restarted.mark_settlement_user("play-complete", "u1")
+            after_crash = LocalOutbox(path)
+            self.assertEqual(
+                [item["playbackId"] for item in after_crash.pending_settlements()], ["play-complete"],
+            )
+            after_crash.remove_settlement("play-complete")
+            self.assertEqual(after_crash.pending_settlements(), [])
 
     def test_random_track_without_queue_or_users_does_not_create_a_settlement(self):
         self.assertFalse(should_track_playback_settlement(None, []))

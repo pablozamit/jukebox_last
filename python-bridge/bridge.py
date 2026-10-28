@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
 import websockets
-from social_events import LocalOutbox, certified_playback_attribution, certified_support_uids, complete_night_close, effective_peak_votes, event_id, event_in_queue_generation, participation_event, peak_event, playback_capture_snapshot, playback_events, playback_settlement_id, publish_certified, queue_identity_matches, settlement_changes, should_track_playback_settlement, social_session_id, song_peak_document_id, utc_iso
+from bridge_runtime import ExponentialBackoff, InstanceLock, SubscriptionRegistry
+from social_events import LocalOutbox, certified_playback_attribution, certified_support_uids, complete_night_close, effective_peak_votes, event_id, event_in_queue_generation, participation_event, peak_event, playback_capture_snapshot, playback_events, playback_settlement_id, publish_certified, queue_generation_matches, settlement_changes, should_track_playback_settlement, social_session_id, song_peak_document_id, token_snapshot_version, utc_iso
 
 load_dotenv()
 
@@ -17,7 +18,7 @@ KODI_PASS = os.getenv("KODI_PASS", "kodi")
 VIDEO_FOLDER_PATH = os.getenv("VIDEO_FOLDER_PATH", "C:/Users/lacat/Videos/Videoclips")
 VIDEO_ROOT = Path(VIDEO_FOLDER_PATH).expanduser().resolve()
 FIREBASE_CRED_PATH = os.getenv("FIREBASE_CREDENTIALS_JSON", "./serviceAccountKey.json")
-BRIDGE_VERSION = "2.3.0-social-candidate"
+BRIDGE_VERSION = "2.4.0-bridge-candidate"
 SOCIAL_OUTBOX_PATH = Path(os.getenv(
     "SOCIAL_EVENTS_OUTBOX_PATH",
     str(Path.home() / ".jukebox-social" / "social-events-outbox.json"),
@@ -25,6 +26,7 @@ SOCIAL_OUTBOX_PATH = Path(os.getenv(
 SOCIAL_OUTBOX = LocalOutbox(SOCIAL_OUTBOX_PATH)
 SOCIAL_PUBLISH_LOCK = threading.Lock()
 SOCIAL_CLOSE_LOCK = threading.RLock()
+SETTLEMENT_LOCK = threading.RLock()
 pending_kodi_requests = {}
 active_connection_tasks = set()
 playback_lock = asyncio.Lock()
@@ -243,6 +245,7 @@ def clean_title(filename):
     return name[:-4] if name.lower().endswith(".mp4") else name
 
 def sync_local_files():
+    global CATALOG_CACHE
     search_path = os.path.join(VIDEO_FOLDER_PATH, "*.mp4")
     local_filenames = [os.path.basename(f) for f in glob.glob(search_path)]
 
@@ -254,9 +257,7 @@ def sync_local_files():
             'available': True
         })
 
-    CATALOG_CACHE.clear()
-    for song in catalog_list:
-        CATALOG_CACHE[song['id']] = song['title']
+    CATALOG_CACHE = {song['id']: song['title'] for song in catalog_list}
 
     db.collection('catalog').document('full_list').set({'songs': catalog_list})
     print(f"Catálogo sincronizado: {len(catalog_list)} canciones guardadas en 1 solo documento.")
@@ -265,6 +266,7 @@ def sync_local_files():
 async def catalog_cache_refresher():
     """Refresca la caché de catálogo cada 10 min (1 lectura) por si el panel
     de administración cambia el catálogo con el bridge en marcha."""
+    global CATALOG_CACHE
     while True:
         await asyncio.sleep(600)
         try:
@@ -272,8 +274,7 @@ async def catalog_cache_refresher():
             songs = (doc_snap.to_dict() or {}).get('songs', []) if doc_snap.exists else []
             new_cache = {song.get('id'): song.get('title') for song in songs if song.get('id')}
             if new_cache:
-                CATALOG_CACHE.clear()
-                CATALOG_CACHE.update(new_cache)
+                CATALOG_CACHE = new_cache
         except Exception as e:
             report_error("Error refrescando caché de catálogo", e)
 
@@ -389,10 +390,18 @@ async def check_for_new_session():
 
         should_reset = False
         if not last_reset_dt:
-            # Si no hay fecha de último reset, es la primera ejecución o un dato corrupto.
-            # Se fuerza el reset si ya es la hora de reset.
-            if now.hour >= reset_hour:
-                should_reset = True
+            # A missing marker may have been erased by an older bridge. Never
+            # infer permission to delete the live queue from missing metadata.
+            # Start a new baseline and resume rollover at the next boundary.
+            current_session_start_ms = session_start_ms(now)
+            db.collection('state').document('nowPlaying').set({
+                'lastResetDate': now.isoformat(),
+                'sessionStart': current_session_start_ms,
+                'lastActive': int(time.time() * 1000),
+            }, merge=True)
+            SESSION_STATE['start'] = current_session_start_ms
+            logger.warning("Falta marcador de jornada: se conserva la cola y se inicia una nueva referencia")
+            return
         else:
             # Comprobar si ha pasado al menos un día y ya son las 2 AM
             is_new_day = (now.date() > last_reset_dt.date())
@@ -437,9 +446,8 @@ async def check_for_new_session():
             SESSION_USER_IDS.clear()
         else:
             SESSION_STATE['start'] = current_session_start_ms
-            # Solo actualizar lastActive si no se hizo un reset para evitar sobrescribir 'sessionStart'
-            db.collection('state').document('nowPlaying').set({'lastActive': int(time.time() * 1000)}, merge=True)
-            print(" [SISTEMA] Continuidad detectada. No se requiere limpieza de jornada.")
+            # progress_tracker publishes the heartbeat; avoid a second write.
+            logger.debug("Continuidad detectada; no se requiere limpieza de jornada")
 
     except Exception as e:
         report_error("Error al comprobar sesión", e)
@@ -451,6 +459,7 @@ def capture_playback_attribution(filename):
     song_ref = db.collection('songs').document(filename)
     song_snap = song_ref.get()
     song_data = song_snap.to_dict() or {} if song_snap.exists else {}
+    queue_created_at = song_snap.create_time if song_snap.exists else None
     queue_id = song_data.get('bridgeQueueId')
     if song_snap.exists and not queue_id:
         candidate = uuid.uuid4().hex
@@ -464,31 +473,46 @@ def capture_playback_attribution(filename):
             current_data = current.to_dict() or {}
             existing = current_data.get('bridgeQueueId')
             if existing:
-                return existing
+                return existing, current_data, current.create_time
             tx.update(song_ref, {'bridgeQueueId': candidate})
-            return candidate
+            return candidate, current_data, current.create_time
 
-        queue_id = ensure_queue_id(transaction)
+        ensured = ensure_queue_id(transaction)
+        if ensured is None:
+            # The queue was removed before it could be tagged.
+            song_data, queue_id, queue_created_at = {}, None, None
+            song_snap = None
+        else:
+            queue_id, song_data, queue_created_at = ensured
     raw_votes = max(0, int(song_data.get('votes', 0) or 0))
-    certified_uids = certified_song_support_uids(filename, str(current_session_start), song_snap.create_time if song_snap.exists else None)
+    certified_uids = certified_song_support_uids(filename, str(current_session_start), queue_created_at)
     peak_votes, queue_identity = playback_capture_snapshot(
         raw_votes,
         certified_uids,
-        song_data if song_snap.exists else None,
+        song_data if song_snap and song_snap.exists else None,
         queue_id,
     )
     users_ref = db.collection('users')
     people = {}
     for snapshot in users_ref.where('proposals', 'array_contains', filename).stream():
-        people[snapshot.id] = {'uid': snapshot.id, 'role': 'proposer', 'certified': snapshot.id in certified_uids}
+        people[snapshot.id] = {'uid': snapshot.id, 'role': 'proposer', 'certified': snapshot.id in certified_uids,
+                               'tokenVersion': token_snapshot_version(snapshot.update_time)}
     for snapshot in users_ref.where('votes', 'array_contains', filename).stream():
-        people.setdefault(snapshot.id, {'uid': snapshot.id, 'role': 'voter', 'certified': snapshot.id in certified_uids})
+        version = token_snapshot_version(snapshot.update_time)
+        existing = people.get(snapshot.id)
+        if existing is None:
+            people[snapshot.id] = {'uid': snapshot.id, 'role': 'voter', 'certified': snapshot.id in certified_uids,
+                                   'tokenVersion': version}
+        elif existing['tokenVersion'] != version:
+            # Reads from the two queries straddled a user update; do not guess.
+            existing['tokenVersion'] = None
     return peak_votes, list(people.values()), queue_identity
 
 
-def settle_playback_user(filename, playback_id, uid, captured_award=None):
+def settle_playback_user(filename, playback_id, uid, captured_award=None, queue_identity=None, token_version=None):
     """Atomically remove a user's token and grant their existing 10/5 points once."""
     user_ref = db.collection('users').document(uid)
+    song_ref = db.collection('songs').document(filename)
     receipt_id = playback_settlement_id(playback_id, uid)
     receipt_ref = db.collection('playbackSettlements').document(receipt_id)
     night_ref = db.collection('leaderboard').document('noche')
@@ -504,10 +528,26 @@ def settle_playback_user(filename, playback_id, uid, captured_award=None):
         user = next(tx.get(user_ref), None)
         if not user or not user.exists:
             return 0
+        song = next(tx.get(song_ref), None)
+        song_data = song.to_dict() if song and song.exists else None
+        same_generation = queue_generation_matches(queue_identity, song_data)
+        if not queue_identity or not (queue_identity.get('bridgeQueueId') or queue_identity.get('firstVotedAt') is not None):
+            return None  # Insufficient evidence to associate this token with playback.
+        if song_data and not same_generation and not (
+            queue_identity.get('bridgeQueueId') and song_data.get('bridgeQueueId')
+        ):
+            return None  # A legacy queue cannot safely be classified as a new generation.
+        if same_generation and (token_version is None or token_snapshot_version(user.update_time) != token_version):
+            return None  # User changed after capture: preserve the token for review.
         user_data = user.to_dict() or {}
-        changes = settlement_changes(user_data, filename, today, captured_award)
+        changes = settlement_changes(user_data, filename, today, captured_award, consume_token=same_generation)
         if changes is None:
             return 0
+        removed = ((filename in (user_data.get('proposals') or [])) +
+                   (filename in (user_data.get('votes') or []))) if same_generation else 0
+        remaining = int((song_data or {}).get('votes', 0) or 0) - removed
+        if same_generation and (removed == 0 or remaining < 0):
+            return None
         points = changes['award']
         night = next(tx.get(night_ref), None)
         week = next(tx.get(week_ref), None)
@@ -517,6 +557,11 @@ def settle_playback_user(filename, playback_id, uid, captured_award=None):
         for data in (night_data, week_data):
             data.setdefault('points', {})[uid] = int(data.get('points', {}).get(uid, 0) or 0) + points
             data.setdefault('names', {})[uid] = name
+        if same_generation:
+            if remaining:
+                tx.update(song_ref, {'votes': remaining})
+            else:
+                tx.delete(song_ref)
         tx.update(user_ref, {
             'proposals': changes['proposals'],
             'votes': changes['votes'],
@@ -538,51 +583,40 @@ def settle_playback_user(filename, playback_id, uid, captured_award=None):
     return apply(transaction)
 
 
-def delete_queue_if_unchanged(filename, queue_identity):
-    """Delete only the queue generation captured by this playback."""
-    song_ref = db.collection('songs').document(filename)
-    transaction = db.transaction()
-
-    @firestore.transactional
-    def apply(tx):
-        snapshot = next(tx.get(song_ref), None)
-        if not snapshot or not snapshot.exists:
-            return False
-        current = snapshot.to_dict() or {}
-        if not queue_identity_matches(queue_identity, current):
-            return False
-        tx.delete(song_ref)
-        return True
-
-    return apply(transaction)
-
-
 def process_playback_settlement(settlement):
     """Retry persisted credits safely; receipt checks prevent replayed increments."""
+    with SETTLEMENT_LOCK:
+        return _process_playback_settlement(settlement)
+
+
+def _process_playback_settlement(settlement):
     playback_id = settlement['playbackId']
     filename = settlement['songId']
     settled = set(settlement.get('settledUids', []))
+    needs_review = set(settlement.get('needsReview', {}))
+    if not settlement.get('uids') and settlement.get('queueIdentity'):
+        SOCIAL_OUTBOX.mark_settlement_review(playback_id, '__queue__', 'no-attribution')
+        logger.warning("Cola %s sin atribuciones fiables; requiere revisión", filename)
+        return False
     for uid in settlement.get('uids', []):
-        if uid in settled:
+        if uid in settled or uid in needs_review:
             continue
         try:
-            settle_playback_user(filename, playback_id, uid, settlement.get('awards', {}).get(uid))
+            outcome = settle_playback_user(filename, playback_id, uid, settlement.get('awards', {}).get(uid),
+                                           settlement.get('queueIdentity'), settlement.get('tokenVersions', {}).get(uid))
+            if outcome is None:
+                SOCIAL_OUTBOX.mark_settlement_review(playback_id, uid, 'token-or-queue-changed')
+                logger.warning("Liquidación %s/%s requiere revisión; no se modificaron turnos", playback_id, uid)
+                needs_review.add(uid)
+                continue
             SOCIAL_OUTBOX.mark_settlement_user(playback_id, uid)
             settled.add(uid)
         except Exception as error:
             logger.exception("Liquidación pendiente %s/%s; se reintentará sin repetir Kodi: %s", playback_id, uid, error)
             return False
     if settled >= set(settlement.get('uids', [])):
-        if not settlement.get('queueIdentity'):
-            # Random catalog playback (or a queue removed by the user) has no
-            # queue document to delete; captured user credits are already settled.
-            SOCIAL_OUTBOX.remove_settlement(playback_id)
-            return True
-        try:
-            delete_queue_if_unchanged(filename, settlement.get('queueIdentity'))
-        except Exception as error:
-            logger.exception("No se pudo verificar cola antes de borrar %s/%s: %s", playback_id, filename, error)
-            return False
+        # Queue changes were performed atomically with each matching token.
+        # Never delete residual votes belonging to later or unknown users.
         SOCIAL_OUTBOX.remove_settlement(playback_id)
         return True
     return False
@@ -601,7 +635,8 @@ async def reset_song_and_tokens(filename, playback_id, captured_attribution=None
         if not should_track_playback_settlement(queue_identity, uids):
             logger.info("Tema aleatorio %s sin cola ni atribuciones; no requiere liquidación", filename)
             return
-        SOCIAL_OUTBOX.put_settlement(playback_id, filename, queue_identity, uids, awards)
+        token_versions = {person['uid']: person.get('tokenVersion') for person in attribution if person.get('uid')}
+        SOCIAL_OUTBOX.put_settlement(playback_id, filename, queue_identity, uids, awards, token_versions)
         settlement = next((item for item in SOCIAL_OUTBOX.pending_settlements()
                            if item.get('playbackId') == playback_id), None)
         if settlement:
@@ -634,6 +669,12 @@ def safe_video_path(filename):
     return candidate
 
 async def play_song_on_kodi(ws, filename, current_playing_file):
+    try:
+        if filename in SOCIAL_OUTBOX.blocked_song_ids():
+            logger.warning("Tema %s con liquidación pendiente; se evita una reproducción duplicada", filename)
+            return False
+    except Exception as error:
+        report_error("No se pudo consultar la revisión local de liquidaciones", error)
     if playback_lock.locked():
         logger.info("Reproducción ya en curso; se ignora la solicitud duplicada: %s", filename)
         return False
@@ -712,12 +753,16 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
         people_by_uid = {person['uid']: person for person in attribution}
         for person in final_attribution:
             existing = people_by_uid.get(person['uid'])
-            if existing is None or person.get('role') == 'proposer':
-                people_by_uid[person['uid']] = person
+            if existing and existing.get('role') == 'proposer':
+                person = {**person, 'role': 'proposer'}
+            people_by_uid[person['uid']] = person
         attribution = list(people_by_uid.values())
         captured_attribution = (peak_votes, attribution, queue_identity)
     except Exception as error:
         report_error("No se pudo completar atribución tras ACK; se usa captura previa y se registra gap", error)
+    # Settle the captured tokens before publishing social achievements, whose
+    # own updates to the user document would invalidate the captured version.
+    await reset_song_and_tokens(filename, playback_id, captured_attribution)
     try:
         social_attribution = certified_playback_attribution(attribution)
         events = playback_events(
@@ -746,8 +791,6 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
     except Exception as error:
         # ACK is real, but a failed disk write cannot be reported as a certified event.
         report_error("Kodi confirmó, pero no se pudo guardar evento social; gap de evidencia", error)
-    await reset_song_and_tokens(filename, playback_id, captured_attribution)
-
     db.collection('state').document('nowPlaying').set({
         'songId': filename,
         'title': clean_title(filename),
@@ -755,7 +798,7 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
         'startedAt': int(time.time() * 1000),
         'totalTime': 0,
         'lastActive': int(time.time() * 1000)
-    })
+    }, merge=True)
     PROGRESS_STATE['file'] = filename
     PROGRESS_STATE['total'] = -1
     db.collection('state').document('cooldowns').set({filename: int(time.time() * 1000)}, merge=True)
@@ -783,19 +826,26 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
 
 async def get_next_song(local_filenames):
     try:
-        query = db.collection('songs').where("votes", ">", 0).order_by("votes", direction=firestore.Query.DESCENDING).order_by("firstVotedAt", direction=firestore.Query.ASCENDING).limit(1)
-        top_song = next(query.stream(), None)
-        if top_song: return top_song.id
+        blocked = SOCIAL_OUTBOX.blocked_song_ids()
+    except Exception as error:
+        report_error("No se pudo consultar la revisión local de liquidaciones", error)
+        blocked = set()
+    try:
+        query = db.collection('songs').where("votes", ">", 0).order_by("votes", direction=firestore.Query.DESCENDING).order_by("firstVotedAt", direction=firestore.Query.ASCENDING).limit(len(blocked) + 1)
+        top_song = next((song for song in query.stream() if song.id not in blocked), None)
+        if top_song:
+            return top_song.id
     except Exception as e:
         report_error("Error obteniendo siguiente canción", e)
-    return random.choice(local_filenames) if local_filenames else None
+    available = [filename for filename in local_filenames if filename not in blocked]
+    return random.choice(available) if available else None
 
 def submit_to_loop(coro):
     """Ejecuta una corrutina en el bucle principal desde el hilo de un watcher."""
     if MAIN_LOOP and MAIN_LOOP.is_running():
         asyncio.run_coroutine_threadsafe(coro, MAIN_LOOP)
 
-def setup_commands_watchers(ws, current_playing_file):
+def setup_commands_watchers(ws, current_playing_file, subscriptions):
     """Escucha en tiempo real los comandos del panel admin. Antes se sondeaban
     cada 2 s (~86.000 lecturas/día); con listeners el coste es cero si no hay
     comandos. El snapshot inicial consume comandos pendientes al arrancar."""
@@ -823,8 +873,8 @@ def setup_commands_watchers(ws, current_playing_file):
                 report_error("Error borrando comando skipCurrent", e)
             submit_to_loop(ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.Stop", "params": {"playerid": 1}, "id": "skip"})))
 
-    commands_ref.document('forcePlay').on_snapshot(on_force)
-    commands_ref.document('skipCurrent').on_snapshot(on_skip)
+    subscriptions.add(commands_ref.document('forcePlay').on_snapshot(on_force))
+    subscriptions.add(commands_ref.document('skipCurrent').on_snapshot(on_skip))
 
 async def progress_tracker(ws, current_playing_file):
     """Sondea Kodi en local y escribe en Firestore lo mínimo:
@@ -851,9 +901,22 @@ def aggregate_vote_event(event_ref, session_key, session_start, raise_on_social_
         return False
     data = event_snapshot.to_dict() or {}
     event_ts = int(data.get('ts', 0) or 0)
-    if event_ts < session_start:
+    # Do not assign a new day's event to a lagging previous-session watcher.
+    # It remains available for the next reconciliation, rather than being lost.
+    if event_ts < session_start or session_start_ms(datetime.fromtimestamp(event_ts / 1000.0)) != session_start:
         return False
     already_counted = data.get('countedSession') == session_key
+    if data.get('countedSession') and not already_counted:
+        return False
+
+    # Once both social effects have been durably recorded, repeated hourly
+    # reconciliation and MODIFIED notifications need no extra Firestore reads.
+    if already_counted and data.get('type') in ('vote', 'proposal') and data.get('songId') and data.get('userId'):
+        occurred_at = datetime.fromtimestamp(event_ts / 1000.0, tz=timezone.utc)
+        social_session = social_session_id(occurred_at)
+        social_id = event_id(data['type'], data['userId'], data['songId'], social_session)
+        if SOCIAL_OUTBOX.has_event(social_id, social_session) and SOCIAL_OUTBOX.peak_is_synced(event_ref.id, social_session):
+            return False
 
     user_snapshot = db.collection('users').document(data.get('userId', '')).get()
     if not user_snapshot.exists:
@@ -866,8 +929,9 @@ def aggregate_vote_event(event_ref, session_key, session_start, raise_on_social_
     # evita releer un documento de ~200 KB por cada voto agregado.
     catalog_title = CATALOG_CACHE.get(data.get('songId'))
     if catalog_title is None or catalog_title != data.get('title'):
-        logger.warning('Evento descartado por metadatos incoherentes: %s', event_ref.id)
-        event_ref.delete()
+        # A stale cache or a catalog edit is not proof that a valid event is
+        # fraudulent. Leave it for reconciliation instead of deleting evidence.
+        logger.warning('Evento pendiente por metadatos de catálogo: %s', event_ref.id)
         return False
 
     event_dt = datetime.fromtimestamp(event_ts / 1000.0)
@@ -888,7 +952,7 @@ def aggregate_vote_event(event_ref, session_key, session_start, raise_on_social_
     def apply_event(tx):
         current = next(tx.get(event_ref), None)
         current_data = current.to_dict() if current else {}
-        if current_data.get('countedSession') == session_key:
+        if current_data.get('countedSession'):
             return False
         tx.set(stats_ref.document('votes_hoy'), increment_data, merge=True)
         tx.set(stats_ref.document('votes_semana'), increment_data, merge=True)
@@ -903,7 +967,7 @@ def aggregate_vote_event(event_ref, session_key, session_start, raise_on_social_
         return True
 
     counted = apply_event(transaction)
-    current_event = event_ref.get().to_dict() or {}
+    current_event = {} if counted or already_counted else (event_ref.get().to_dict() or {})
     if counted or already_counted or current_event.get('countedSession') == session_key:
         try:
             kind = data.get('type')
@@ -949,12 +1013,11 @@ def aggregate_vote_event(event_ref, session_key, session_start, raise_on_social_
                 raise
     return counted
 
-def setup_vote_events_watch():
+def setup_vote_events_watch(subscriptions):
     """Escucha en tiempo real los eventos de voto. Antes se escaneaba toda la
     colección cada 3 s (la mayor fuente de lecturas de la factura, millones al
     mes); con listener solo se leen los eventos nuevos.
-    Nota: si run_forever reinicia main(), se registra otro watcher; es inocuo
-    porque aggregate_vote_event es idempotente (countedSession)."""
+    La suscripción se cierra antes de volver a conectar Kodi."""
     def on_events(col_snapshot, changes, read_time):
         session_start = SESSION_STATE['start'] or session_start_ms()
         docs = ([change.document for change in changes if change.type.name in ('ADDED', 'MODIFIED')]
@@ -972,7 +1035,7 @@ def setup_vote_events_watch():
                 except Exception as e:
                     report_error(f"Error agregando evento {event.id}", e)
 
-    db.collection_group('voteEvents').on_snapshot(on_events)
+    subscriptions.add(db.collection_group('voteEvents').on_snapshot(on_events))
 
 async def vote_events_cleanup_loop():
     """Limpieza y red de seguridad, ahora cada hora (antes cada 3 s):
@@ -1014,7 +1077,7 @@ async def bridge_status_writer(current_playing_file, session_start):
                 'connectedToKodi': True,
                 'currentSongId': filename,
                 'currentSongTitle': clean_title(filename) if filename else None,
-                'sessionStart': session_start,
+                'sessionStart': SESSION_STATE['start'] or session_start,
             })
         except Exception as e:
             report_error("Error publicando heartbeat", e)
@@ -1024,12 +1087,16 @@ async def active_users_writer():
     """Publica cada 120 s cuántos usuarios han participado en la jornada.
     Antes leía TODA la colección 'users' cada 15 s (millones de lecturas/mes);
     ahora el número se deriva de los eventos que ya escucha el watcher."""
+    last_count = None
     while True:
         try:
-            db.collection('state').document('active_users').set({
-                'count': len(SESSION_USER_IDS),
-                'updatedAt': int(time.time() * 1000)
-            })
+            current_count = len(SESSION_USER_IDS)
+            if current_count != last_count:
+                db.collection('state').document('active_users').set({
+                    'count': current_count,
+                    'updatedAt': int(time.time() * 1000)
+                })
+                last_count = current_count
         except Exception as e:
             report_error("Error contador usuarios activos", e)
         await asyncio.sleep(120)
@@ -1045,11 +1112,10 @@ async def session_watchdog():
             report_error("Error watchdog", e)
         await asyncio.sleep(60)
 
-async def main():
+async def main(subscriptions):
     global MAIN_LOOP
     MAIN_LOOP = asyncio.get_running_loop()
     MAIN_LOOP.set_exception_handler(_asyncio_exception_handler)
-    local_filenames = sync_local_files()
     connection_tasks = active_connection_tasks
     connection_tasks.clear()
 
@@ -1059,13 +1125,14 @@ async def main():
         task.add_done_callback(connection_tasks.discard)
         return task
 
-    await check_for_new_session()
-    session_start = session_start_ms()
-    SESSION_STATE['start'] = session_start
-
     uri = f"ws://{KODI_USER}:{KODI_PASS}@{KODI_IP}:{KODI_PORT}/jsonrpc"
     async with websockets.connect(uri) as ws:
         print("Conectado a Kodi.")
+        # Do not rescan or rewrite the catalog while Kodi is unavailable.
+        local_filenames = sync_local_files()
+        await check_for_new_session()
+        session_start = session_start_ms()
+        SESSION_STATE['start'] = session_start
         current_playing_file = [None]
         for task_coro in (
             progress_tracker(ws, current_playing_file),
@@ -1078,8 +1145,8 @@ async def main():
         ):
             spawn_connection_task(task_coro)
         # Watchers de Firestore: viven en hilos del SDK (no en el pool asyncio).
-        setup_commands_watchers(ws, current_playing_file)
-        setup_vote_events_watch()
+        setup_commands_watchers(ws, current_playing_file, subscriptions)
+        setup_vote_events_watch(subscriptions)
         await ws.send(json.dumps({"jsonrpc": "2.0", "method": "Player.GetActivePlayers", "id": "check_active"}))
 
         while True:
@@ -1124,19 +1191,16 @@ async def main():
         await asyncio.gather(*connection_tasks, return_exceptions=True)
 
 async def run_forever():
+    backoff = ExponentialBackoff(initial_delay=5, max_delay=300)
     while True:
+        subscriptions = SubscriptionRegistry()
+        started = time.monotonic()
         try:
-            await main()
+            await main(subscriptions)
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            for task in list(active_connection_tasks):
-                task.cancel()
-            if active_connection_tasks:
-                await asyncio.gather(*active_connection_tasks, return_exceptions=True)
-            active_connection_tasks.clear()
-            pending_kodi_requests.clear()
-            report_error("Bridge desconectado; reintentando en 5 segundos", e)
+            report_error("Bridge desconectado; se reintentará con espera progresiva", e)
             try:
                 db.collection('state').document('bridgeStatus').set({
                     'version': BRIDGE_VERSION,
@@ -1148,6 +1212,26 @@ async def run_forever():
                 })
             except Exception as status_error:
                 report_error("No se pudo publicar estado desconectado", status_error)
-        await asyncio.sleep(5)
+        finally:
+            for error in subscriptions.close():
+                logger.warning("No se pudo cerrar un listener de Firestore: %s", error)
+            for task in list(active_connection_tasks):
+                task.cancel()
+            if active_connection_tasks:
+                await asyncio.gather(*active_connection_tasks, return_exceptions=True)
+            active_connection_tasks.clear()
+            pending_kodi_requests.clear()
+        # Brief connects followed by immediate disconnects also back off.
+        if time.monotonic() - started >= 60:
+            backoff.reset()
+        await asyncio.sleep(backoff.next_delay())
 
-if __name__ == "__main__": asyncio.run(run_forever())
+if __name__ == "__main__":
+    instance_lock = InstanceLock(SOCIAL_OUTBOX_PATH.parent / "bridge.lock")
+    if not instance_lock.acquire():
+        logger.error("Ya hay un puente ejecutándose en este ordenador; no se inicia otro")
+        sys.exit(1)
+    try:
+        asyncio.run(run_forever())
+    finally:
+        instance_lock.release()

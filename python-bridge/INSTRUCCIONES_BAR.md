@@ -2,19 +2,23 @@
 
 Este documento es tu billete para que todo funcione sin sorpresas cuando llegues al local. Llévalo abierto en el móvil o sigue los pasos desde allí.
 
+> **Versión candidata:** validada con pruebas locales, no con Kodi ni el ordenador del bar. Una liquidación ambigua puede dejar una canción bloqueada para revisión; resuelve la operativa de revisión y prueba el recorrido real antes de usarla durante el servicio.
+
 ## 📦 1. QUÉ TIENES QUE LLEVAR EN EL PENDRIVE EXACTAMENTE
 
 Para no depender de descargar cosas pesadas con el internet del bar, mete esto en tu USB desde casa y pásalo a una carpeta cualquiera en el escritorio del PC del bar (ej: `Carpeta Jukebox`):
 
-1. **El archivo `bridge.py`**: Está dentro de la carpeta `python-bridge` de tu proyecto.
-2. **El archivo `set_admin.py`**: También en `python-bridge`. Lo necesitarás para dar permisos de admin (solo una vez).
+1. **Los archivos `bridge.py`, `social_events.py`, `bridge_runtime.py` y `requirements.txt`**: están en `python-bridge`.
+2. **El archivo `set_admin.py`**: también en `python-bridge`. Lo necesitarás para dar permisos de admin (solo una vez).
 3. **Este propio documento (`INSTRUCCIONES_BAR.md`)**: Para poder abrirlo y leerlo allí.
-4. **`serviceAccountKey.json`**: Tu clave secreta de administrador (ya está en la carpeta `python-bridge`).
+4. La credencial de Firebase, solo si el responsable la ha preparado y autorizado para ese equipo.
 5. **El archivo `.env`**: Tu configuración del puente (cópialo de `.env.example` y rellena los valores del bar).
 6. *(Opcional pero recomendado)* **El instalador de Python**: Descárgalo desde python.org en casa y mételo al pendrive por si el PC del bar no lo tuviera instalado.
 7. *(Opcional)* **El instalador de Kodi**: Por si tuvieras que instalarlo de cero.
 
-**Nota:** Los archivos `bridge.py`, `set_admin.py`, el `.env` y el `.json` **deben estar juntos** en la misma carpeta cuando los pegues en el PC del bar. Y por supuesto, asegúrate de que el disco duro externo o la carpeta con todos los **archivos de vídeo de karaoke/música** esté conectada al PC.
+**Nota:** Conserva juntos `bridge.py`, `social_events.py`, `bridge_runtime.py` y los módulos Python requeridos y `.env`. Mantén las credenciales protegidas y conecta el disco o carpeta de vídeos.
+
+**Estado:** este manual no confirma que el puente esté instalado, arrancado o probado en el bar. Valida esos pasos allí antes de dar el sistema por operativo.
 
 ---
 
@@ -39,11 +43,9 @@ python set_admin.py admin@lacatrina.com
 
 Esto añade el UID del usuario a la colección `admins` de Firestore. Solo necesita hacerse **una vez**.
 
-### Desplegar las reglas de seguridad
+### Reglas de seguridad
 
-1. En Firebase Console, ve a **Firestore Database > Rules**.
-2. Copia el contenido de `security-rules.txt` de tu proyecto.
-3. Pégalo en el editor y haz clic en **Publish**.
+Este manual no despliega ni valida reglas de Firebase. No ejecutes desde el bar scripts de despliegue o pruebas de reglas contra producción. Cualquier cambio requiere el procedimiento autorizado del proyecto y validación en emuladores.
 
 ---
 
@@ -65,7 +67,7 @@ En el PC físico del bar (es necesario que esté conectado al WiFi/cable):
 2. Abre la consola de Windows (Buscador > `cmd`).
 3. Lanza este comando para instalar lo que necesita tu programa Jukebox:
    ```cmd
-   pip install requests firebase-admin python-dotenv websockets
+   pip install -r requirements.txt
    ```
 
 ---
@@ -102,5 +104,17 @@ FIREBASE_CREDENTIALS_JSON=./serviceAccountKey.json
 5. La consola dirá *"Puente Jukebox ACTIVADO"* y empezará a escanear tu disco duro en milisegundos.
 6. Verás iluminarse tu móvil al instante con todas las canciones de tu carpeta. Prueba a darle al botón Verde (Force Play) a cualquier canción nueva y maravíllate viendo a Kodi empezar a reproducirla a los 2 segundos.
 
-¡Y ya está! 🍷 Tírate una caña. Has creado el sistema y está funcionando local y remotamente de forma síncrona. Todo el bar puede entrar a tu Vercel y jugar con la máquina.
+**Comprobación de Kodi:** la configuración o el arranque del bridge no confirman que Kodi reproduzca correctamente. Registra Kodi como probado solo después de enviar una canción de prueba y observar la reproducción en el equipo del bar.
+
+### Liquidaciones pendientes de revisión
+
+Si una liquidación de reproducción resulta ambigua, el bridge conserva los datos en el outbox local y marca la canción para revisión. Mientras siga marcada, no se selecciona para reproducirse otra vez. **No borres ni edites el archivo del outbox a ciegas**; consulta al responsable del sistema para resolver el caso y proteger votos y puntos.
+
+La revisión puede activarse si el perfil cambia entre la captura y la liquidación, incluso si ese cambio es ajeno al voto. No hay resolución automática para ese caso. Si el marcador del cierre diario falta, el puente conserva la cola y crea una referencia nueva; el cierre se reanuda en el siguiente cambio de jornada.
+
+Solo debe ejecutarse una copia del bridge en el equipo y con la misma carpeta de outbox. Detén la versión antigua antes de iniciar la nueva: las versiones antiguas y las configuradas con otra carpeta no comparten el bloqueo de instancia.
+
+Para diagnosticar errores, revisa `bridge_errors.log` junto al bridge y comparte el fragmento pertinente con quien lo mantenga. El archivo puede contener detalles operativos; compártelo solo por el canal autorizado.
+
+Al completar la instalación, registra qué componentes arrancaron y qué comprobaciones hiciste en el propio bar. Este documento no demuestra que el puente esté instalado o validado allí.
 
