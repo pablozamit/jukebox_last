@@ -59,6 +59,7 @@ La matriz usa fixtures propios y los limpia al terminar. La reconciliación glob
 - Los clientes no escriben directamente los documentos sociales. La callable valida identidad, catálogo, saldo, versiones y caducidad. Los administradores existentes conservan su acceso global.
 - La presencia se renueva cada 60 segundos mientras la página está visible. Caduca sin renovación y requiere reactivación explícita. El contador agrupa vencimientos; el cliente descarta presencias caducadas incluso antes del mantenimiento periódico.
 - El mapa minimizado desmonta la escena y su listener de avatares. Mantiene el resumen y las suscripciones personales. El GLB y Three.js se cargan al abrir el mapa.
+- La escena solicita un fotograma al cambiar su contenido, tamaño o visibilidad, en vez de dibujar continuamente cuando está quieta. El modelo GLB se ha optimizado conservando la estructura del local; el archivo pasa de 1.794.504 a 322.684 bytes. El ahorro efectivo de transferencia depende de la compresión y caché del servidor.
 - Las estadísticas nuevas reflejan eventos certificados desde su activación; no se reconstruyen totales históricos a partir de arrays de votos activos. Los logros anteriores reconocidos conservan su recompensa sin volver a conceder puntos.
 - Ocultarse afecta al mapa social. El ticker musical público anterior conserva sus eventos de votos/propuestas.
 
