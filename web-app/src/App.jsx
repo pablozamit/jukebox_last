@@ -426,6 +426,30 @@ export default function App() {
         t={t}
       />
 
+      <div className="px-4 pt-3 max-w-lg mx-auto">
+        {SOCIAL_MAP_ENABLED && (
+          <Suspense fallback={null}>
+            <SocialMapPanel
+              userId={userId}
+              isRegistered={isRegistered}
+              userData={userData}
+              catalog={catalog}
+              lang={lang}
+              getServerTime={getServerTime}
+              onRegister={() => { setAuthMode('register'); setShowRegister(true); }}
+            />
+          </Suspense>
+        )}
+        <a
+          href="#jukebox-song-search"
+          className={`mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors ${isCatrina ? 'border-brand-gold/35 bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/15' : 'border-brand-neon-purple/30 bg-brand-neon-purple/10 text-white hover:bg-brand-neon-purple/20'}`}
+        >
+          <Search size={17} aria-hidden="true" />
+          {lang === 'en' ? 'Search or suggest a song' : 'Busca o propone una canción'}
+          <ArrowUp size={15} className="rotate-45" aria-hidden="true" />
+        </a>
+      </div>
+
       {/* ===== MAIN ===== */}
       <main className="p-4 space-y-6 max-w-lg mx-auto">
         {IS_LOCAL_DEMO && <p className="text-center text-xs text-theme-muted" role="status">{lang === 'en' ? 'Local preview · test data' : 'Vista local · datos de prueba'}</p>}
@@ -463,20 +487,6 @@ export default function App() {
           t={t}
         />
 
-        {SOCIAL_MAP_ENABLED && (
-          <Suspense fallback={null}>
-            <SocialMapPanel
-              userId={userId}
-              isRegistered={isRegistered}
-              userData={userData}
-              catalog={catalog}
-              lang={lang}
-              getServerTime={getServerTime}
-              onRegister={() => { setAuthMode('register'); setShowRegister(true); }}
-            />
-          </Suspense>
-        )}
-
         {nightlyTop && (
           <NightlyTopBanner nightlyTop={nightlyTop} isCatrina={isCatrina} mainTextClass={mainTextClass} t={t} />
         )}
@@ -503,6 +513,7 @@ export default function App() {
           <div className="relative">
             <Search className="jukebox-search-icon" size={20} />
             <input
+              id="jukebox-song-search"
               type="text"
               placeholder={t.searchPlaceholder}
               value={searchTerm}

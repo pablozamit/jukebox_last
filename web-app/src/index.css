@@ -654,6 +654,110 @@ body {
   color: #d2aa5b;
 }
 
+/* Keep the now-playing card compact at every viewport size. */
+.jukebox-np {
+  padding: 12px 18px;
+}
+
+.jukebox-np-label {
+  margin-bottom: 8px;
+}
+
+.jukebox-np-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-areas:
+    "title disc"
+    "vote disc"
+    "progress progress";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 0;
+}
+
+.jukebox-np-title {
+  grid-area: title;
+  margin-bottom: 4px;
+  font-size: 1.15rem;
+}
+
+.jukebox-np-vote {
+  grid-area: vote;
+  justify-content: flex-start;
+  margin: 0 0 5px;
+  min-height: 28px;
+}
+
+.jukebox-np-disc-wrap {
+  grid-area: disc;
+  margin: 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.jukebox-np-disc-wrap svg {
+  width: 42px;
+  height: 42px;
+}
+
+.jukebox-np-progress {
+  grid-area: progress;
+  margin-top: 6px;
+}
+
+#jukebox-song-search {
+  scroll-margin-top: 112px;
+}
+
+@media (max-width: 640px) {
+  .jukebox-np {
+    padding: 14px 16px;
+  }
+
+  .jukebox-np-label {
+    margin-bottom: 8px;
+  }
+
+  .jukebox-np-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 38px;
+    grid-template-areas:
+      "title disc"
+      "vote disc"
+      "progress progress";
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 0;
+  }
+
+  .jukebox-np-title {
+    grid-area: title;
+    margin-bottom: 4px;
+    font-size: 1.1rem;
+  }
+
+  .jukebox-np-vote {
+    grid-area: vote;
+    justify-content: flex-start;
+    margin: 0 0 5px;
+    min-height: 28px;
+  }
+
+  .jukebox-np-disc-wrap {
+    grid-area: disc;
+    margin: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .jukebox-np-disc-wrap svg {
+    width: 36px;
+    height: 36px;
+  }
+}
+
 @media (max-width: 640px) {
   [data-theme="catrina"] main {
     padding: 12px;

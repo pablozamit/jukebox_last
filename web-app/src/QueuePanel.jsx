@@ -98,6 +98,8 @@ export default function QueuePanel({
                   <button
                     onClick={() => onRemoveAction(song.id)}
                     className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
+                    title={t.removeFromQueue}
+                    aria-label={t.removeFromQueue}
                   >
                     <Trash2 size={18} />
                   </button>

@@ -42,8 +42,8 @@ export default function NowPlayingCard({
       </div>
 
       {isBridgeActive ? (
-        <div className={isCatrina ? 'relative z-[1]' : ''}>
-          <h3 className={`text-xl font-bold mb-2 line-clamp-2 leading-tight ${mainTextClass}`}>
+        <div className={`jukebox-np-content ${isCatrina ? 'relative z-[1]' : ''}`}>
+          <h3 className={`jukebox-np-title text-xl font-bold mb-2 line-clamp-2 leading-tight ${mainTextClass}`}>
             {nowPlaying?.title || t.autoMode}
           </h3>
 
@@ -59,7 +59,7 @@ export default function NowPlayingCard({
             const isDisabled = hasVotedForCurrentSong || limitReached || !isBridgeActive || isCoolingDown;
 
             return (
-              <div className={`flex items-center justify-center gap-2 mb-3 ${isCatrina ? 'relative z-[1]' : ''}`}>
+              <div className={`jukebox-np-vote flex items-center justify-center gap-2 mb-3 ${isCatrina ? 'relative z-[1]' : ''}`}>
                 <button
                   onClick={() => handleVote(npSong)}
                   disabled={hasVotedForCurrentSong || limitReached || !isBridgeActive || isCoolingDown}
@@ -81,11 +81,11 @@ export default function NowPlayingCard({
             );
           })()}
 
-          <div ref={discRef} className={`mx-auto my-4 ${isCatrina ? 'jukebox-np-disc' : 'text-brand-neon-purple opacity-80'}`}>
+          <div ref={discRef} className={`jukebox-np-disc-wrap mx-auto my-4 ${isCatrina ? 'jukebox-np-disc' : 'text-brand-neon-purple opacity-80'}`}>
             <Disc3 size={isCatrina ? 56 : 48} />
           </div>
 
-          <div className="space-y-2 text-left">
+          <div className="jukebox-np-progress space-y-2 text-left">
             <div className="jukebox-np-bar">
               <div
                 className="jukebox-np-bar-fill transition-all duration-1000 ease-linear"
