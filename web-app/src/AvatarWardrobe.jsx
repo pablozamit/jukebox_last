@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, Check, Coins } from 'lucide-react';
-import { CATEGORIES, SOCIAL_CATALOG } from '../../shared/socialCatalog.mjs';
+import { CATEGORIES, DEFAULT_EQUIPPED, SOCIAL_CATALOG } from '../../shared/socialCatalog.mjs';
 import SocialAvatar from './SocialAvatar';
 import { SOCIAL_TEXT as T, socialErrorMessage } from './socialText.mjs';
 import { useSocialDialogFocus } from './hooks/useSocialDialogFocus';
@@ -17,7 +17,7 @@ export default function AvatarWardrobe({ profile, inventory = [], points = 0, la
   const ownedIds = useMemo(() => new Set(inventory.map(item => typeof item === 'string' ? item : item.itemId || item.id)), [inventory]);
   const equipped = profile?.equipped || {};
   const items = SOCIAL_CATALOG.filter(item => item.category === category && (tab === 'closet' ? ownedIds.has(item.id) : !ownedIds.has(item.id)));
-  const isEquipped = item => equipped[item.category] === item.id;
+  const isEquipped = item => (equipped[item.category] || DEFAULT_EQUIPPED[item.category]) === item.id;
 
   const perform = async (item, mode) => {
     setBusy(item.id); setMessage('');

@@ -191,7 +191,7 @@ function SocialMapPanelSession({ userId, isRegistered, userData, catalog = [], l
   const panel = <section ref={panelRef} className={`social-panel ${expanded ? 'is-expanded' : 'is-collapsed'}`} aria-label={expanded ? undefined : t.title} aria-labelledby={expanded ? 'social-panel-heading' : undefined} aria-modal={expanded || undefined} role={expanded ? 'dialog' : undefined} tabIndex={expanded ? -1 : undefined} onKeyDown={handlePanelKeyDown}>
     {!expanded ? <div className="social-collapsed-row">
       <button ref={collapsedButtonRef} type="button" className="social-collapsed-main" onClick={() => setExpanded(true)} aria-label={t.open} aria-expanded="false" aria-controls="social-map-panel-content">
-        <span className="social-live-glyph" aria-hidden="true"><span /></span><span className="social-title-copy"><strong>{t.title}</strong><small>{count} {visiblePeopleLabel}</small></span><ChevronDown size={18} aria-hidden="true" />
+        <span className="social-live-glyph" aria-hidden="true"><span /></span><span className="social-title-copy"><strong>{t.title}</strong><small>{count} {visiblePeopleLabel}</small></span><span className="social-collapsed-cta"><MapPin size={15} aria-hidden="true" /><span>{language === 'en' ? 'Explore map' : 'Explorar mapa'}</span><ChevronDown size={14} aria-hidden="true" /></span>
       </button>
       {invitations.some(item => item.status === 'pending') && <button type="button" className="social-invitation-badge" onClick={() => setExpanded(true)} aria-label={t.invitations} aria-controls="social-map-panel-content"><Bell size={15} /><b>{invitations.filter(item => item.status === 'pending').length}</b></button>}
     </div> : <>

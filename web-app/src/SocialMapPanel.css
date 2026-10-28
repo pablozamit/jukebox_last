@@ -18,9 +18,11 @@
 .social-panel button:focus-visible, .social-dj-card button:focus-visible, .social-wardrobe button:focus-visible, .social-favorite-picker button:focus-visible, .social-favorite-picker input:focus-visible, .social-panel select:focus-visible {
   outline: 2px solid var(--social-gold); outline-offset: 2px;
 }
-.social-collapsed-row { min-height: 54px; display: flex; align-items: stretch; }
+.social-collapsed-row { min-height: 62px; display: flex; align-items: stretch; }
 .social-collapsed-main { flex: 1; display: flex; align-items: center; gap: 11px; min-width: 0; padding: 8px 14px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .social-collapsed-main:hover { background: rgba(200, 162, 88, .055); }
+.social-collapsed-cta { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 0 11px; border: 1px solid rgba(200,162,88,.48); border-radius: 2px; background: linear-gradient(145deg,rgba(200,162,88,.2),rgba(118,75,43,.13)); color: #f2d99f; font-size: 11px; font-weight: 600; letter-spacing: .015em; white-space: nowrap; transition: background-color .16s ease, border-color .16s ease, color .16s ease; }
+.social-collapsed-main:hover .social-collapsed-cta { border-color: rgba(226,190,117,.72); background: linear-gradient(145deg,rgba(200,162,88,.3),rgba(118,75,43,.2)); color: #fff0c9; }
 .social-title-copy { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .social-title-copy strong { font: 500 15px/1.15 "Playfair Display", Georgia, serif; letter-spacing: .015em; }
 .social-title-copy small { color: var(--social-muted); font-size: 11px; }
@@ -149,6 +151,12 @@
 [data-theme="neon"] .social-map-content { border-color: rgba(176,38,255,.2); background: radial-gradient(ellipse at 49% 48%,#27202d 0%,#17141a 64%,#110f13 100%); }
 
 @media (max-width: 600px) {
+  .social-collapsed-row { min-height: 58px; }
+  .social-collapsed-main { gap: 8px; padding: 7px 9px; }
+  .social-title-copy strong { font-size: 14px; }
+  .social-title-copy small { font-size: 10px; }
+  .social-title-copy strong, .social-title-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .social-collapsed-cta { gap: 4px; min-height: 38px; padding: 0 8px; font-size: 10px; }
   .social-panel.is-expanded { inset: max(4px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left)); max-height: calc(100dvh - 8px); padding: 12px 11px; }
   .social-panel-header { top: -12px; margin: -12px -11px 0; padding: 10px 11px 8px; }
   .social-panel-tools { gap: 0; }

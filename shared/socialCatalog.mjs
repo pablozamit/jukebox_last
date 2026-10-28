@@ -11,8 +11,24 @@ export const SOCIAL_CATALOG = Object.freeze([
   item('hair-short', 'hair', 'Pelo corto', 'Short hair', '#38261e', 'short'),
   item('hair-mid', 'hair', 'Media melena', 'Medium hair', '#67442c', 'mid'),
   item('hair-none', 'hair', 'Sin pelo', 'No hair', '#bf9471', 'none'),
+  item('skin-light', 'skin', 'Piel clara', 'Light skin', '#edc29d', 'tone'),
+  item('skin-tan', 'skin', 'Piel tostada', 'Tan skin', '#c98f68', 'tone'),
+  item('skin-deep', 'skin', 'Piel oscura', 'Deep skin', '#754633', 'tone'),
+  item('face-natural', 'face', 'Rostro natural', 'Natural face', '#30221d', 'natural'),
+  item('face-freckles', 'face', 'Pecas', 'Freckles', '#30221d', 'freckles'),
+  item('hair-bob', 'hair', 'Corte bob', 'Bob cut', '#4a3027', 'bob'),
   item('tee-amber', 'top', 'Camiseta ámbar', 'Amber tee', '#d89839', 'tee', 50),
   item('hair-curly', 'hair', 'Rizos', 'Curls', '#2f201b', 'curly', 50),
+  item('hair-ponytail', 'hair', 'Coleta', 'Ponytail', '#483024', 'ponytail', 50),
+  item('hair-bun', 'hair', 'Moño', 'Bun', '#51382b', 'bun', 50),
+  item('hair-mohawk', 'hair', 'Cresta', 'Mohawk', '#3a2623', 'mohawk', 100),
+  item('face-moustache', 'face', 'Bigote', 'Moustache', '#493125', 'moustache', 50),
+  item('tee-stripe', 'top', 'Camiseta a rayas', 'Striped tee', '#d45d4f', 'stripe', 50),
+  item('hoodie-night', 'top', 'Sudadera noche', 'Night hoodie', '#474259', 'hoodie', 100),
+  item('shorts-summer', 'bottom', 'Pantalón corto', 'Summer shorts', '#bd754c', 'shorts', 50),
+  item('skirt-olive', 'bottom', 'Falda oliva', 'Olive skirt', '#66774c', 'skirt', 100),
+  item('earrings-gold', 'accessory', 'Aros dorados', 'Gold hoops', '#dfb957', 'earrings', 50),
+  item('scarf-red', 'accessory', 'Pañuelo rojo', 'Red scarf', '#a63f43', 'scarf', 100),
   item('jacket-denim', 'top', 'Chaqueta vaquera', 'Denim jacket', '#537da1', 'jacket', 100),
   item('boots', 'shoes', 'Botas', 'Boots', '#4e3525', 'boots', 100),
   item('jacket-dj', 'top', 'Chaqueta de DJ', 'DJ jacket', '#9d4b6b', 'jacket', 200),
@@ -28,8 +44,8 @@ export const SOCIAL_CATALOG = Object.freeze([
 ]);
 export const CATALOG_BY_ID = Object.fromEntries(SOCIAL_CATALOG.map(entry => [entry.id, entry]));
 export const STARTER_IDS = SOCIAL_CATALOG.filter(entry => entry.source === 'starter').map(entry => entry.id);
-export const DEFAULT_EQUIPPED = Object.freeze({ hair: 'hair-short', top: 'tee-cream', bottom: 'jeans', shoes: 'sneakers', accessory: null });
-export const CATEGORIES = Object.freeze(['hair', 'top', 'bottom', 'shoes', 'accessory']);
+export const DEFAULT_EQUIPPED = Object.freeze({ hair: 'hair-short', skin: 'skin-tan', face: 'face-natural', top: 'tee-cream', bottom: 'jeans', shoes: 'sneakers', accessory: null });
+export const CATEGORIES = Object.freeze(['skin', 'face', 'hair', 'top', 'bottom', 'shoes', 'accessory']);
 export const ACHIEVEMENT_IDS = Object.freeze(['first_vote', 'protagonist', 'hitmaker', 'influencer', 'streak', 'loyal', 'early_bird', 'night_owl']);
 export const SOCIAL_ZONES = Object.freeze([
   { id: 'terrace', label: { es: 'Terraza', en: 'Terrace' }, anchor: [0, 0, -4] },

@@ -57,6 +57,7 @@ La matriz usa fixtures propios y los limpia al terminar. La reconciliación glob
 ## Contratos y conservación de datos
 
 - `users` mantiene saldo gastable y puntos históricos. Comprar prendas solo descuenta saldo; no modifica nivel, historial ni rankings. Compra e inventario se escriben en una transacción, con recibo idempotente.
+- El catálogo incluye tonos de piel, rasgos faciales, peinados y ropa: al inicializarse, los perfiles existentes reciben los nuevos artículos iniciales que les falten. Las prendas de pago requieren que el catálogo de Firestore coincida con el catálogo incluido en Functions. Antes de activar una versión nueva, revisar el catálogo y actualizarlo en el proyecto autorizado con el procedimiento `seed:catalog`; no usar el proyecto real para pruebas.
 - `socialUsers`, inventario, bloqueos y estadísticas son privados para su titular. El mapa recibe una proyección limitada en `rooms/catrina/presence`. Las fichas públicas solo se devuelven para presencia vigente. Las invitaciones solo son legibles por emisor/receptor.
 - Los clientes no escriben directamente los documentos sociales. La callable valida identidad, catálogo, saldo, versiones y caducidad. Los administradores existentes conservan su acceso global.
 - La presencia se renueva cada 60 segundos mientras la página está visible. Caduca sin renovación y requiere reactivación explícita. El contador agrupa vencimientos; el cliente descarta presencias caducadas incluso antes del mantenimiento periódico.

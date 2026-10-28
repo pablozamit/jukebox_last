@@ -304,7 +304,7 @@ function updateSocialMarkers(THREE, scene, people, groups) {
     if (!position) return;
     const name = String(person.name || 'DJ').trim() || 'DJ';
     const equipped = person.equipped || {};
-    const appearance = ['hair', 'top', 'bottom', 'shoes', 'accessory'].map(key => equipped[key] || '').join('|');
+    const appearance = ['skin', 'face', 'hair', 'top', 'bottom', 'shoes', 'accessory'].map(key => equipped[key] || '').join('|');
     let avatar = previousGroups.get(person.uid);
     if (avatar && (avatar.userData.appearance !== appearance || avatar.userData.displayName !== name)) {
       scene.remove(avatar);
