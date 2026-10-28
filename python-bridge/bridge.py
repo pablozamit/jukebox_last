@@ -1,4 +1,5 @@
-import asyncio, json, os, glob, random, time, logging, uuid, threading
+import asyncio, json, os, glob, random, time, logging, uuid, threading, sys, faulthandler
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from datetime import datetime, time as dt_time, timedelta, timezone
 from dotenv import load_dotenv
@@ -16,7 +17,7 @@ KODI_PASS = os.getenv("KODI_PASS", "kodi")
 VIDEO_FOLDER_PATH = os.getenv("VIDEO_FOLDER_PATH", "C:/Users/lacat/Videos/Videoclips")
 VIDEO_ROOT = Path(VIDEO_FOLDER_PATH).expanduser().resolve()
 FIREBASE_CRED_PATH = os.getenv("FIREBASE_CREDENTIALS_JSON", "./serviceAccountKey.json")
-BRIDGE_VERSION = "2.2.0"
+BRIDGE_VERSION = "2.3.0-social-candidate"
 SOCIAL_OUTBOX_PATH = Path(os.getenv(
     "SOCIAL_EVENTS_OUTBOX_PATH",
     str(Path.home() / ".jukebox-social" / "social-events-outbox.json"),
@@ -34,8 +35,40 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(), logging.FileHandler("bridge.log", encoding="utf-8")],
 )
 
+# Registro de errores aparte (v2.3.0): bridge_errors.log guarda solo WARNING o
+# superior, con traza completa, rotado (5 x 2 MB) para que no crezca sin limite.
+# Pensado para pegarlo tal cual a quien arregle el puente.
+_err_handler = RotatingFileHandler("bridge_errors.log", maxBytes=2_000_000, backupCount=5, encoding="utf-8")
+_err_handler.setLevel(logging.WARNING)
+_err_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] [v" + BRIDGE_VERSION + "] [%(threadName)s] %(message)s"))
+logging.getLogger().addHandler(_err_handler)
+
 def report_error(context, error):
     logger.exception("%s: %s", context, error)
+
+def _sys_excepthook(exc_type, exc, tb):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc, tb)
+        return
+    logger.critical("Excepcion no capturada, el puente puede haberse parado", exc_info=(exc_type, exc, tb))
+
+def _thread_excepthook(args):
+    logger.error("Excepcion no capturada en hilo %s", getattr(args.thread, "name", "?"),
+                 exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+def _asyncio_exception_handler(loop, context):
+    logger.error("Error asyncio: %s", context.get("message", ""), exc_info=context.get("exception"))
+
+sys.excepthook = _sys_excepthook
+threading.excepthook = _thread_excepthook
+try:
+    # Si el proceso muere de forma brusca (fallo nativo), deja la traza aqui.
+    _fault_file = open("bridge_crash.log", "a", encoding="utf-8")
+    faulthandler.enable(file=_fault_file)
+except Exception:
+    pass
+logger.info("Puente %s arrancando (errores en bridge_errors.log)", BRIDGE_VERSION)
 
 def flush_social_outbox():
     with SOCIAL_PUBLISH_LOCK:
@@ -734,7 +767,7 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
         stats_ref.document('plays_mes').set(increment_data, merge=True)
         stats_ref.document('plays_total').set(increment_data, merge=True)
     except Exception as e:
-        print(f" Error actualizando estadísticas de reproducción: {e}")
+        report_error("Error actualizando estadisticas de reproduccion", e)
 
     try:
         hist_ref = db.collection('state').document('played_history')
@@ -743,7 +776,7 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
         songs.insert(0, {'title': clean_title(filename), 'ts': int(time.time() * 1000)})
         hist_ref.set({'songs': songs[:10]})
     except Exception as e:
-        print(f" Error historial: {e}")
+        report_error("Error historial", e)
 
     logger.info("REPRODUCIENDO: %s", clean_title(filename))
     return True
@@ -827,12 +860,12 @@ def aggregate_vote_event(event_ref, session_key, session_start, raise_on_social_
         logger.warning('Evento descartado por referencias inexistentes: %s', event_ref.id)
         event_ref.delete()
         return False
-    user_data = user_snapshot.to_dict() or {}
-    expected_name = user_data.get('djName') or 'ANONYMOUS'
+    # voterName is a historical display label, not identity. The UID and
+    # catalog identify this event; a later profile rename must not erase it.
     # Catálogo en memoria (lo mantienen sync_local_files y el refresco periódico):
     # evita releer un documento de ~200 KB por cada voto agregado.
     catalog_title = CATALOG_CACHE.get(data.get('songId'))
-    if catalog_title is None or catalog_title != data.get('title') or data.get('voterName') != expected_name:
+    if catalog_title is None or catalog_title != data.get('title'):
         logger.warning('Evento descartado por metadatos incoherentes: %s', event_ref.id)
         event_ref.delete()
         return False
@@ -998,7 +1031,7 @@ async def active_users_writer():
                 'updatedAt': int(time.time() * 1000)
             })
         except Exception as e:
-            print(f" Error contador usuarios activos: {e}")
+            report_error("Error contador usuarios activos", e)
         await asyncio.sleep(120)
 
 async def session_watchdog():
@@ -1009,12 +1042,13 @@ async def session_watchdog():
         try:
             await check_for_new_session()
         except Exception as e:
-            print(f" Error watchdog: {e}")
+            report_error("Error watchdog", e)
         await asyncio.sleep(60)
 
 async def main():
     global MAIN_LOOP
     MAIN_LOOP = asyncio.get_running_loop()
+    MAIN_LOOP.set_exception_handler(_asyncio_exception_handler)
     local_filenames = sync_local_files()
     connection_tasks = active_connection_tasks
     connection_tasks.clear()

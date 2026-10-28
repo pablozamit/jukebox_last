@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, signOut, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, runTransaction, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { firebaseErrorMessage } from '../firebaseErrorMessage';
+import { initializeUserProfile, registerUserProfile } from '../userProfile.mjs';
 
 export function useUserSession({ toast, t }) {
   const [userId, setUserId] = useState(null);
@@ -36,10 +37,7 @@ export function useUserSession({ toast, t }) {
         setIsRegistered(!!user.email);
         const userRef = doc(db, 'users', user.uid);
         try {
-          const userDoc = await getDoc(userRef);
-          if (!userDoc.exists()) {
-            await setDoc(userRef, { proposals: [], votes: [] });
-          }
+          await runTransaction(db, transaction => initializeUserProfile(transaction, userRef));
         } catch (error) {
           if (version !== sessionVersion) return;
           console.error('Firebase user initialization error:', error);
@@ -90,15 +88,12 @@ export function useUserSession({ toast, t }) {
       const credential = EmailAuthProvider.credential(regEmail.trim(), regPassword);
       const linkedCredential = await linkWithCredential(currentUser, credential);
       const registeredUser = linkedCredential.user;
-      await setDoc(doc(db, 'users', registeredUser.uid), {
-        // Incluir los arrays también permite que el registro gane una carrera
-        // contra la inicialización anónima del documento.
-        proposals: userProposals,
-        votes: userVotes,
+      const userRef = doc(db, 'users', registeredUser.uid);
+      await runTransaction(db, transaction => registerUserProfile(transaction, userRef, {
         isRegistered: true,
         email: regEmail.trim(),
         djName: djNameClean.slice(0, 20),
-      }, { merge: true });
+      }));
       setShowRegister(false);
       setShowLogin(false);
       setIsRegistered(true);

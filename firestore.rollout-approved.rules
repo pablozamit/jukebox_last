@@ -1,0 +1,362 @@
+// LOCAL REVIEW CANDIDATE ONLY: temporary legacy/new-client compatibility.
+// Not wired into firebase.json. No social routes or collection-group read grant.
+// Legacy writes retain token/queue limits, but may omit or duplicate events.
+// Strict event uniqueness requires firestore.rules after old clients refresh.
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Regla global para Admins (UID en la colección 'admins').
+    // Los admins (panel /admin y bridge) pueden leer/escribir cualquier documento.
+    match /{document=**} {
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Each client queue mutation consumes or returns exactly one profile token.
+    // When changed, lastEventId links the token/count to exactly one new event.
+    // The temporary unchanged-pointer lane cannot enforce event uniqueness.
+    function profileBefore() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function profileAfter() {
+      return getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function oneAdded(before, after) {
+      return before is list && after is list
+        && after.size() == before.size() + 1
+        && before.toSet().size() == before.size()
+        && after.toSet().size() == after.size()
+        && after.hasAll(before);
+    }
+    function oneRemoved(before, after) {
+      return before is list && after is list
+        && after.size() == before.size() - 1
+        && before.toSet().size() == before.size()
+        && after.toSet().size() == after.size()
+        && before.hasAll(after);
+    }
+    function addsToken(key, songId) {
+      let before = profileBefore();
+      let after = profileAfter();
+      return after.diff(before).affectedKeys().hasOnly([key])
+        && oneAdded(before[key], after[key])
+        && !(songId in before[key]) && songId in after[key];
+    }
+    function removesToken(key, songId) {
+      let before = profileBefore();
+      let after = profileAfter();
+      return after.diff(before).affectedKeys().hasOnly([key])
+        && oneRemoved(before[key], after[key])
+        && songId in before[key] && !(songId in after[key]);
+    }
+    function removesSongToken(songId) {
+      return removesToken('votes', songId) || removesToken('proposals', songId);
+    }
+    function queueAdded(key, before, after) {
+      let songId = after.removeAll(before)[0];
+      return songId is string && songId.size() > 0
+        && ((key == 'proposals'
+          && !exists(/databases/$(database)/documents/songs/$(songId))
+          && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes == 1)
+        || (key == 'votes'
+          && exists(/databases/$(database)/documents/songs/$(songId))
+          && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes
+             == get(/databases/$(database)/documents/songs/$(songId)).data.votes + 1));
+    }
+    function queueRemoved(before, after) {
+      let songId = before.removeAll(after)[0];
+      // Played/removed songs leave stale tokens; returning those is harmless.
+      return songId is string && songId.size() > 0
+        && (!exists(/databases/$(database)/documents/songs/$(songId))
+          || (get(/databases/$(database)/documents/songs/$(songId)).data.votes <= 1
+            && !existsAfter(/databases/$(database)/documents/songs/$(songId)))
+          || (get(/databases/$(database)/documents/songs/$(songId)).data.votes > 1
+            && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes
+               == get(/databases/$(database)/documents/songs/$(songId)).data.votes - 1));
+    }
+
+    function eventVoterName() {
+      let name = profileBefore().get('djName', '');
+      return name is string && name.size() > 0 ? name : 'ANONYMOUS';
+    }
+    function newVoteEvent(songId, type) {
+      let eventId = request.resource.data.lastEventId;
+      let eventPath = /databases/$(database)/documents/songs/$(songId)/voteEvents/$(eventId);
+      return eventId is string && eventId.size() > 0 && eventId.size() <= 128
+        && eventId.matches('^[^/]+$')
+        && !exists(eventPath) && existsAfter(eventPath)
+        && getAfter(eventPath).data.userId == request.auth.uid
+        && getAfter(eventPath).data.songId == songId
+        && getAfter(eventPath).data.type == type;
+    }
+
+    // Event context: a legacy update can preserve a pointer written earlier by
+    // a new client. Presence of the field alone must not select the strict lane.
+    function songPointerChanged(songId) {
+      let songPath = /databases/$(database)/documents/songs/$(songId);
+      return getAfter(songPath).data.get('lastEventId', '')
+        != (exists(songPath) ? get(songPath).data.get('lastEventId', '') : '');
+    }
+
+    // ============ 1. songs — Cola activa ============
+    // Cualquiera puede ver la cola. Votar = crear (1 voto) o incrementar/decrementar en 1.
+    match /songs/{songId} {
+      allow read: if true;
+
+      // Proponer una canción nueva: el documento nace con exactamente 1 voto.
+      allow create: if request.auth != null
+                    && request.resource.data.votes == 1
+                    && addsToken('proposals', songId)
+                    && (!request.resource.data.keys().hasAny(['lastEventId'])
+                        || newVoteEvent(songId, 'proposal'))
+                    && request.resource.data.keys().hasAll(['title', 'votes'])
+                    && request.resource.data.keys().hasOnly(['title', 'votes', 'firstVotedAt', 'proposerName', 'lastVoterName', 'lastEventId']);
+
+      // Votar (+1) o retirar voto (-1), y nada más.
+      allow update: if request.auth != null
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'firstVotedAt', 'proposerName', 'lastVoterName', 'lastEventId'])
+                    && request.resource.data.votes is int
+                    && request.resource.data.votes >= 1
+                    && ((request.resource.data.votes == resource.data.votes + 1
+                         && addsToken('votes', songId)
+                         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastEventId'])
+                             || newVoteEvent(songId, 'vote')))
+                        || (request.resource.data.votes == resource.data.votes - 1
+                            && removesSongToken(songId)
+                            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastEventId'])));
+
+      // Retirar el último voto borra la canción de la cola.
+      allow delete: if request.auth != null
+                    && resource.data.votes <= 1
+                    && removesSongToken(songId);
+    }
+
+    // ============ 2. catalog — Solo lectura (escribe el bridge / admin) ============
+    match /catalog/full_list {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ============ 3. state — Solo lectura (escribe el bridge con Admin SDK) ============
+    match /state/{document=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ============ 4. users — Cada usuario solo lee/escribe SU propio documento ============
+    match /users/{userId} {
+      // Max limits for proposals (3 for guest, 6 for registered)
+      function maxProposals(userDoc) {
+        return userDoc.get('isRegistered', false) ? 6 : 3;
+      }
+      // Max limits for votes (5 for guest, 10 for registered)
+      function maxVotes(userDoc) {
+        return userDoc.get('isRegistered', false) ? 10 : 5;
+      }
+
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // Creación inicial del documento (login anónimo o registro inmediato).
+      // Siempre deben existir los dos arrays; el resto son campos de perfil controlados.
+      allow create: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.keys().hasAll(['proposals', 'votes'])
+                    && request.resource.data.proposals is list
+                    && request.resource.data.votes is list
+                    && request.resource.data.proposals.size() == 0
+                    && request.resource.data.votes.size() == 0
+                    && request.resource.data.keys().hasOnly(['proposals', 'votes', 'isRegistered', 'email', 'djName'])
+                    && (!request.resource.data.keys().hasAny(['isRegistered', 'email', 'djName'])
+                        || (request.resource.data.isRegistered == true
+                            && request.resource.data.email == request.auth.token.email));
+
+      // [NUEVO] Permitir al usuario actualizar djName o favorites (solos o juntos)
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['djName', 'favorites']);
+
+      // One queue action per transaction, with the corresponding song change.
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals'])
+                    && ((oneAdded(resource.data.proposals, request.resource.data.proposals)
+                         && request.resource.data.proposals.size() <= maxProposals(resource.data)
+                         && queueAdded('proposals', resource.data.proposals, request.resource.data.proposals))
+                        || (oneRemoved(resource.data.proposals, request.resource.data.proposals)
+                            && queueRemoved(resource.data.proposals, request.resource.data.proposals)));
+
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
+                    && ((oneAdded(resource.data.votes, request.resource.data.votes)
+                         && request.resource.data.votes.size() <= maxVotes(resource.data)
+                         && queueAdded('votes', resource.data.votes, request.resource.data.votes))
+                        || (oneRemoved(resource.data.votes, request.resource.data.votes)
+                            && queueRemoved(resource.data.votes, request.resource.data.votes)));
+
+      // Completar el registro después de enlazar la cuenta anónima con email/password.
+      // El email guardado debe coincidir con el email del token de Firebase Auth.
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRegistered', 'email', 'djName'])
+                    && request.resource.data.isRegistered == true
+                    && request.resource.data.email == request.auth.token.email;
+
+      // La trivia puede conceder exactamente +1 propuesta y +2 votos una vez cada
+      // 30 minutos. Los puntos y demás campos de servidor no son editables por el cliente.
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['freeProposals', 'freeVotes', 'lastTriviaAt'])
+                    && request.time.toMillis() - resource.data.get('lastTriviaAt', 0) >= 30 * 60 * 1000
+                    && request.resource.data.freeProposals == resource.data.get('freeProposals', 0) + 1
+                    && request.resource.data.freeVotes == resource.data.get('freeVotes', 0) + 2
+                    && request.resource.data.lastTriviaAt >= request.time.toMillis() - 60 * 1000;
+
+      // Perder una ronda solo actualiza la marca de tiempo, con el mismo cooldown.
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastTriviaAt'])
+                    && request.time.toMillis() - resource.data.get('lastTriviaAt', 0) >= 30 * 60 * 1000
+                    && request.resource.data.lastTriviaAt >= request.time.toMillis() - 60 * 1000;
+
+      // Canjear 50 puntos por un voto gratis: operación legítima y acotada.
+      // No permite fabricar puntos ni votos; exige saldo suficiente y un cambio exacto.
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points', 'freeVotes'])
+                    && resource.data.get('points', 0) >= 50
+                    && request.resource.data.points == resource.data.get('points', 0) - 50
+                    && request.resource.data.freeVotes == resource.data.get('freeVotes', 0) + 1;
+    }
+
+    // ============ 5. commands — Solo admins (regla global) ============
+    match /commands/{commandId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // ============ 6. suggestions — Cualquiera puede sugerir; solo admins leen/borran ============
+    match /suggestions/{docId} {
+      allow create: if request.auth != null;
+      allow read, update, delete: if false;
+    }    // ============ 7. statistics — Contadores protegidos ============
+    match /statistics/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ============ 8. voteEvents — Evento anidado bajo la canción ============
+    // La ruta aporta songId de forma estática a las reglas. El evento solo puede
+    // crearse en la misma transacción que actualiza el usuario y la canción.
+    match /songs/{songId}/voteEvents/{eventId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['kind', 'userId', 'songId', 'title', 'type', 'voterName', 'ts'])
+                    && request.resource.data.keys().hasAll(['kind', 'userId', 'songId', 'title', 'type', 'voterName', 'ts'])
+                    && request.resource.data.kind == 'vote_event'
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.songId == songId
+                    && (!songPointerChanged(songId)
+                        || getAfter(/databases/$(database)/documents/songs/$(songId)).data.lastEventId == eventId)
+                    && (request.resource.data.type == 'vote' || request.resource.data.type == 'proposal')
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.title.size() <= 240
+                    && request.resource.data.voterName == eventVoterName()
+                    && request.resource.data.voterName is string
+                    && request.resource.data.voterName.size() > 0
+                    && request.resource.data.voterName.size() <= 40
+                    && request.resource.data.ts is int
+                    && request.resource.data.ts >= request.time.toMillis() - (10 * 60 * 1000)
+                    && request.resource.data.ts <= request.time.toMillis() + 60000
+                    && (
+                      (request.resource.data.type == 'proposal'
+                        && !exists(/databases/$(database)/documents/songs/$(songId))
+                        && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes == 1
+                        && getAfter(/databases/$(database)/documents/songs/$(songId)).data.title == request.resource.data.title
+                        && addsToken('proposals', songId))
+                      ||
+                      (request.resource.data.type == 'vote'
+                        && exists(/databases/$(database)/documents/songs/$(songId))
+                        && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes
+                           == get(/databases/$(database)/documents/songs/$(songId)).data.votes + 1
+                        && getAfter(/databases/$(database)/documents/songs/$(songId)).data.title == request.resource.data.title
+                        && addsToken('votes', songId))
+                    );
+
+      allow update, delete: if false;
+    }
+
+    // ============ 9. admins — Solo lectura del propio documento ============
+
+
+    // ============ 9. admins — Solo lectura del propio documento ============
+    match /admins/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // ============ 10. leaderboard — Solo lectura (escribe el bridge) ============
+    match /leaderboard/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ============ 11. design_feedback — Encuesta de diseño ============
+    match /design_feedback/{docId} {
+      allow create: if request.auth != null;
+      allow read, update, delete: if false;
+    }
+
+    // [NEW] ============ 12. serverTime — Para estimar offset de reloj del cliente ============
+    match /serverTime/{document=**} {
+      allow write: if request.auth != null; // Allow authenticated users (even anonymous) to write
+      allow read: if true; // Allow anyone to read
+    }
+
+    // Social documents have a narrow public projection and no client writes.
+    // The Admin SDK callable owns every social mutation.
+    match /socialUsers/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+      match /inventory/{itemId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+      match /blocks/{otherUid} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+      match /operations/{operationId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+    match /socialStats/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+    match /rooms/catrina {
+      allow read: if request.auth != null;
+      allow write: if false;
+      match /presence/{uid} {
+        allow read: if request.auth != null;
+        allow write: if false;
+      }
+    }
+    match /socialInvitations/{invitationId} {
+      allow read: if request.auth != null &&
+        (resource.data.senderId == request.auth.uid || resource.data.recipientId == request.auth.uid);
+      allow write: if false;
+    }
+    match /socialCatalog/{itemId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    match /socialEvents/{eventId} {
+      allow read, write: if false;
+    }
+    match /socialEventReceipts/{eventId} {
+      allow read, write: if false;
+    }
+    match /socialSongPeaks/{peakId} {
+      allow read, write: if false;
+    }
+    match /socialPairs/{pairId} {
+      allow read, write: if false;
+    }
+  }
+}

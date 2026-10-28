@@ -1,5 +1,8 @@
 {
   "indexes": [
+    { "collectionGroup": "songs", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "votes", "order": "DESCENDING" }, { "fieldPath": "firstVotedAt", "order": "ASCENDING" }
+    ] },
     { "collectionGroup": "socialSongPeaks", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "sessionId", "order": "ASCENDING" }, { "fieldPath": "peakVotes", "order": "DESCENDING" }
     ] },

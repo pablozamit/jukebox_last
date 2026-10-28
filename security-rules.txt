@@ -9,6 +9,83 @@ service cloud.firestore {
       allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    // Each client queue mutation consumes or returns exactly one profile token.
+    // lastEventId links each added token/count to exactly one new event.
+    function profileBefore() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function profileAfter() {
+      return getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function oneAdded(before, after) {
+      return before is list && after is list
+        && after.size() == before.size() + 1
+        && before.toSet().size() == before.size()
+        && after.toSet().size() == after.size()
+        && after.hasAll(before);
+    }
+    function oneRemoved(before, after) {
+      return before is list && after is list
+        && after.size() == before.size() - 1
+        && before.toSet().size() == before.size()
+        && after.toSet().size() == after.size()
+        && before.hasAll(after);
+    }
+    function addsToken(key, songId) {
+      let before = profileBefore();
+      let after = profileAfter();
+      return after.diff(before).affectedKeys().hasOnly([key])
+        && oneAdded(before[key], after[key])
+        && !(songId in before[key]) && songId in after[key];
+    }
+    function removesToken(key, songId) {
+      let before = profileBefore();
+      let after = profileAfter();
+      return after.diff(before).affectedKeys().hasOnly([key])
+        && oneRemoved(before[key], after[key])
+        && songId in before[key] && !(songId in after[key]);
+    }
+    function removesSongToken(songId) {
+      return removesToken('votes', songId) || removesToken('proposals', songId);
+    }
+    function queueAdded(key, before, after) {
+      let songId = after.removeAll(before)[0];
+      return songId is string && songId.size() > 0
+        && ((key == 'proposals'
+          && !exists(/databases/$(database)/documents/songs/$(songId))
+          && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes == 1)
+        || (key == 'votes'
+          && exists(/databases/$(database)/documents/songs/$(songId))
+          && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes
+             == get(/databases/$(database)/documents/songs/$(songId)).data.votes + 1));
+    }
+    function queueRemoved(before, after) {
+      let songId = before.removeAll(after)[0];
+      // Played/removed songs leave stale tokens; returning those is harmless.
+      return songId is string && songId.size() > 0
+        && (!exists(/databases/$(database)/documents/songs/$(songId))
+          || (get(/databases/$(database)/documents/songs/$(songId)).data.votes <= 1
+            && !existsAfter(/databases/$(database)/documents/songs/$(songId)))
+          || (get(/databases/$(database)/documents/songs/$(songId)).data.votes > 1
+            && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes
+               == get(/databases/$(database)/documents/songs/$(songId)).data.votes - 1));
+    }
+
+    function eventVoterName() {
+      let name = profileBefore().get('djName', '');
+      return name is string && name.size() > 0 ? name : 'ANONYMOUS';
+    }
+    function newVoteEvent(songId, type) {
+      let eventId = request.resource.data.lastEventId;
+      let eventPath = /databases/$(database)/documents/songs/$(songId)/voteEvents/$(eventId);
+      return eventId is string && eventId.size() > 0 && eventId.size() <= 128
+        && eventId.matches('^[^/]+$')
+        && !exists(eventPath) && existsAfter(eventPath)
+        && getAfter(eventPath).data.userId == request.auth.uid
+        && getAfter(eventPath).data.songId == songId
+        && getAfter(eventPath).data.type == type;
+    }
+
     // ============ 1. songs — Cola activa ============
     // Cualquiera puede ver la cola. Votar = crear (1 voto) o incrementar/decrementar en 1.
     match /songs/{songId} {
@@ -17,18 +94,27 @@ service cloud.firestore {
       // Proponer una canción nueva: el documento nace con exactamente 1 voto.
       allow create: if request.auth != null
                     && request.resource.data.votes == 1
+                    && addsToken('proposals', songId)
+                    && newVoteEvent(songId, 'proposal')
                     && request.resource.data.keys().hasAll(['title', 'votes'])
-                    && request.resource.data.keys().hasOnly(['title', 'votes', 'firstVotedAt', 'proposerName', 'lastVoterName']);
+                    && request.resource.data.keys().hasOnly(['title', 'votes', 'firstVotedAt', 'proposerName', 'lastVoterName', 'lastEventId']);
 
       // Votar (+1) o retirar voto (-1), y nada más.
       allow update: if request.auth != null
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'firstVotedAt', 'proposerName', 'lastVoterName'])
-                    && (request.resource.data.votes == resource.data.votes + 1
-                        || request.resource.data.votes == resource.data.votes - 1);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'firstVotedAt', 'proposerName', 'lastVoterName', 'lastEventId'])
+                    && request.resource.data.votes is int
+                    && request.resource.data.votes >= 1
+                    && ((request.resource.data.votes == resource.data.votes + 1
+                         && addsToken('votes', songId)
+                         && newVoteEvent(songId, 'vote'))
+                        || (request.resource.data.votes == resource.data.votes - 1
+                            && removesSongToken(songId)
+                            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastEventId'])));
 
       // Retirar el último voto borra la canción de la cola.
       allow delete: if request.auth != null
-                    && resource.data.votes <= 1;
+                    && resource.data.votes <= 1
+                    && removesSongToken(songId);
     }
 
     // ============ 2. catalog — Solo lectura (escribe el bridge / admin) ============
@@ -60,6 +146,10 @@ service cloud.firestore {
       // Siempre deben existir los dos arrays; el resto son campos de perfil controlados.
       allow create: if request.auth != null && request.auth.uid == userId
                     && request.resource.data.keys().hasAll(['proposals', 'votes'])
+                    && request.resource.data.proposals is list
+                    && request.resource.data.votes is list
+                    && request.resource.data.proposals.size() == 0
+                    && request.resource.data.votes.size() == 0
                     && request.resource.data.keys().hasOnly(['proposals', 'votes', 'isRegistered', 'email', 'djName'])
                     && (!request.resource.data.keys().hasAny(['isRegistered', 'email', 'djName'])
                         || (request.resource.data.isRegistered == true
@@ -69,40 +159,27 @@ service cloud.firestore {
       allow update: if request.auth != null && request.auth.uid == userId
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['djName', 'favorites']);
 
-      // [NUEVO] Permitir al usuario añadir UNA propuesta
+      // One queue action per transaction, with the corresponding song change.
       allow update: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.proposals is list
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals'])
-                    && request.resource.data.proposals.size() == resource.data.proposals.size() + 1
-                    && request.resource.data.proposals.hasAll(resource.data.proposals) // Todos los antiguos deben estar en el nuevo
-                    && request.resource.data.proposals.size() <= maxProposals(resource.data);
+                    && ((oneAdded(resource.data.proposals, request.resource.data.proposals)
+                         && request.resource.data.proposals.size() <= maxProposals(resource.data)
+                         && queueAdded('proposals', resource.data.proposals, request.resource.data.proposals))
+                        || (oneRemoved(resource.data.proposals, request.resource.data.proposals)
+                            && queueRemoved(resource.data.proposals, request.resource.data.proposals)));
 
-      // [NUEVO] Permitir al usuario quitar UNA propuesta
       allow update: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.proposals is list
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals'])
-                    && request.resource.data.proposals.size() == resource.data.proposals.size() - 1
-                    && resource.data.proposals.hasAll(request.resource.data.proposals); // Los nuevos deben ser un subconjunto de los antiguos
-
-      // [NUEVO] Permitir al usuario añadir UN voto
-      allow update: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.votes is list
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
-                    && request.resource.data.votes.size() == resource.data.votes.size() + 1
-                    && request.resource.data.votes.size() <= maxVotes(resource.data)
-                    && request.resource.data.votes.hasAll(resource.data.votes); // Todos los antiguos deben estar en el nuevo
-
-      // [NUEVO] Permitir al usuario quitar UN voto
-      allow update: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.votes is list
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
-                    && request.resource.data.votes.size() == resource.data.votes.size() - 1
-                    && resource.data.votes.hasAll(request.resource.data.votes); // Los nuevos deben ser un subconjunto de los antiguos
+                    && ((oneAdded(resource.data.votes, request.resource.data.votes)
+                         && request.resource.data.votes.size() <= maxVotes(resource.data)
+                         && queueAdded('votes', resource.data.votes, request.resource.data.votes))
+                        || (oneRemoved(resource.data.votes, request.resource.data.votes)
+                            && queueRemoved(resource.data.votes, request.resource.data.votes)));
 
       // Completar el registro después de enlazar la cuenta anónima con email/password.
       // El email guardado debe coincidir con el email del token de Firebase Auth.
       allow update: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposals', 'votes', 'isRegistered', 'email', 'djName'])
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRegistered', 'email', 'djName'])
                     && request.resource.data.isRegistered == true
                     && request.resource.data.email == request.auth.token.email;
 
@@ -157,10 +234,12 @@ service cloud.firestore {
                     && request.resource.data.kind == 'vote_event'
                     && request.resource.data.userId == request.auth.uid
                     && request.resource.data.songId == songId
+                    && getAfter(/databases/$(database)/documents/songs/$(songId)).data.lastEventId == eventId
                     && (request.resource.data.type == 'vote' || request.resource.data.type == 'proposal')
                     && request.resource.data.title is string
                     && request.resource.data.title.size() > 0
                     && request.resource.data.title.size() <= 240
+                    && request.resource.data.voterName == eventVoterName()
                     && request.resource.data.voterName is string
                     && request.resource.data.voterName.size() > 0
                     && request.resource.data.voterName.size() <= 40
@@ -172,14 +251,14 @@ service cloud.firestore {
                         && !exists(/databases/$(database)/documents/songs/$(songId))
                         && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes == 1
                         && getAfter(/databases/$(database)/documents/songs/$(songId)).data.title == request.resource.data.title
-                        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.proposals.hasAll([songId]))
+                        && addsToken('proposals', songId))
                       ||
                       (request.resource.data.type == 'vote'
                         && exists(/databases/$(database)/documents/songs/$(songId))
                         && getAfter(/databases/$(database)/documents/songs/$(songId)).data.votes
                            == get(/databases/$(database)/documents/songs/$(songId)).data.votes + 1
                         && getAfter(/databases/$(database)/documents/songs/$(songId)).data.title == request.resource.data.title
-                        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.votes.hasAll([songId]))
+                        && addsToken('votes', songId))
                     );
 
       allow update, delete: if false;

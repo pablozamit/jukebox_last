@@ -1,7 +1,8 @@
 import { useEffect, useState, lazy, Suspense, useMemo } from 'react';
-import { collection, doc, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDocFromServer, increment, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db, SOCIAL_MAP_ENABLED, IS_LOCAL_DEMO } from './firebase';
 import { translations } from './translations';
+import { withProposalRaceRetry } from './queueTransaction.mjs';
 import { useTheme } from './ThemeContext';
 import { useToast } from './Toast';
 import { TextureOverlay, OrnamentalDivider } from './Ornaments';
@@ -139,6 +140,7 @@ export default function App() {
 
   const {
     activityEvents,
+    activityFeedUnavailable,
     isLastCall,
     showPlayingBanner,
     playingBannerData,
@@ -245,25 +247,37 @@ export default function App() {
     }
 
     // Registro optimista: evita notificarte a ti mismo tu propio voto
-    ownVoteRef.current = { songId: song.id, at: getServerTime() };
+    const previousOwnVote = ownVoteRef.current;
+    const ownVoteMarker = { songId: song.id, at: getServerTime() };
+    ownVoteRef.current = ownVoteMarker;
     let voteWasProposal = false;
     lastVoteCountsRef.current[song.id] = (activeQueue[song.id]?.votes || 0) + 1;
     try {
       const votedAt = serverTimestamp();
       const userRef = doc(db, 'users', userId);
       const songRef = doc(db, 'songs', song.id);
+      const eventRef = doc(collection(db, 'songs', song.id, 'voteEvents'));
 
       // Usuario y canción forman una sola operación lógica. Si una de las dos
       // escrituras falla, la transacción revierte ambas y no se consume el voto.
-      await runTransaction(db, async (transaction) => {
+      const outcome = await withProposalRaceRetry(recordSongRead => runTransaction(db, async (transaction) => {
         const [userSnap, songSnap] = await Promise.all([
           transaction.get(userRef),
           transaction.get(songRef),
         ]);
+        const proposalRace = recordSongRead(songSnap.exists());
         const currentUser = userSnap.exists() ? userSnap.data() : {};
         const currentProposals = currentUser.proposals || [];
         const currentVotes = currentUser.votes || [];
         const userIsRegistered = currentUser.isRegistered || false;
+        const effectiveIsProposal = !songSnap.exists();
+        voteWasProposal = effectiveIsProposal;
+        const alreadyApplied = effectiveIsProposal
+          ? currentProposals.includes(song.id)
+          : currentVotes.includes(song.id);
+        if (alreadyApplied || (proposalRace && currentProposals.includes(song.id))) {
+          return { status: 'noop', votes: songSnap.exists() ? songSnap.data().votes : 0 };
+        }
 
         const actualMaxProposals = userIsRegistered ? REGISTERED_MAX_PROPOSALS : GUEST_MAX_PROPOSALS;
         const actualMaxVotes = userIsRegistered ? REGISTERED_MAX_VOTES : GUEST_MAX_VOTES;
@@ -271,9 +285,6 @@ export default function App() {
         let finalProposals = [...currentProposals];
         let finalVotes = [...currentVotes];
         let shouldIncrementSongVote = false;
-
-        const effectiveIsProposal = !songSnap.exists();
-        voteWasProposal = effectiveIsProposal;
 
         // --- TOKEN LIMIT CHECK --- (Server-side validation)
         if (effectiveIsProposal) {
@@ -290,15 +301,9 @@ export default function App() {
         // --- END TOKEN LIMIT CHECK ---
 
         if (effectiveIsProposal) {
-            if (finalProposals.includes(song.id)) {
-                return; // Ya propuesto, abortar transacción
-            }
             finalProposals.push(song.id);
             shouldIncrementSongVote = true;
         } else { // Es un voto
-            if (finalVotes.includes(song.id)) {
-                return; // Ya votado, abortar transacción
-            }
             finalVotes.push(song.id);
             shouldIncrementSongVote = true;
         }
@@ -311,13 +316,15 @@ export default function App() {
         if (shouldIncrementSongVote) {
             if (songSnap.exists()) {
                 transaction.update(songRef, {
-                    votes: (songSnap.data().votes || 0) + 1,
+                    votes: increment(1),
+                    lastEventId: eventRef.id,
                     ...(effectiveIsProposal ? { proposerName: djDisplayName } : {}),
                 });
             } else {
                 transaction.set(songRef, {
                     title: song.title,
                     votes: 1,
+                    lastEventId: eventRef.id,
                     firstVotedAt: votedAt,
                     proposerName: djDisplayName,
                 });
@@ -326,17 +333,21 @@ export default function App() {
         // El evento viaja dentro de la misma transacción que el voto. Las reglas
         // comprueban con getAfter() que usuario y canción cambiaron de verdad;
         // así no se pueden fabricar estadísticas con un addDoc independiente.
-        const eventRef = doc(collection(db, 'songs', song.id, 'voteEvents'));
         transaction.set(eventRef, {
           kind: 'vote_event',
           userId,
           songId: song.id,
           title: song.title,
           type: effectiveIsProposal ? 'proposal' : 'vote',
-          voterName: userData?.djName?.trim() || 'ANONYMOUS',
+          voterName: currentUser.djName || 'ANONYMOUS',
           ts: Math.round(getServerTime()),
         });
-      });
+      }), async () => (await getDocFromServer(songRef)).exists());
+      if (outcome?.status === 'noop') {
+        if (ownVoteRef.current === ownVoteMarker) ownVoteRef.current = previousOwnVote;
+        lastVoteCountsRef.current[song.id] = outcome.votes;
+        return;
+      }
 
       // Los contadores los calcula el bridge a partir de este evento confirmado.
       // El navegador no escribe mapas de estadísticas arbitrarios.
@@ -561,6 +572,7 @@ export default function App() {
         <ActivityTicker
           isCatrina={isCatrina}
           activityEvents={activityEvents}
+          activityFeedUnavailable={activityFeedUnavailable}
           playedHistory={playedHistory}
           isTickerCollapsed={isTickerCollapsed}
           onToggleCollapse={() => setIsTickerCollapsed(!isTickerCollapsed)}

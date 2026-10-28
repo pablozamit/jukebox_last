@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
-export default function ActivityTicker({ isCatrina, activityEvents, playedHistory, isTickerCollapsed, onToggleCollapse, t }) {
+export default function ActivityTicker({ isCatrina, activityEvents, activityFeedUnavailable, playedHistory, isTickerCollapsed, onToggleCollapse, t }) {
   return (
     <div className={`jukebox-activity-ticker ${isCatrina ? 'jukebox-activity-ticker-catrina' : ''}`}>
       <div
@@ -51,7 +51,7 @@ export default function ActivityTicker({ isCatrina, activityEvents, playedHistor
               </div>
             </div>
           ) : (
-            <span className={`jukebox-ticker-event ${isCatrina ? 'text-brand-gold/30' : 'text-zinc-600'}`}>{t.noActivity}</span>
+            <span className={`jukebox-ticker-event ${isCatrina ? 'text-brand-gold/30' : 'text-zinc-600'}`}>{activityFeedUnavailable ? (t.activityUnavailable || "Actividad no disponible") : t.noActivity}</span>
           )}
         </>
       )}

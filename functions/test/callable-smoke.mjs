@@ -36,9 +36,14 @@ try {
     }
     const app = initClient({ apiKey: 'demo-catrina-social-key', projectId: 'demo-catrina-social', appId: `smoke-${index}-${run}` }, `callable-${index}-${run}`);
     const auth = getAuth(app);
-    connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    const authEndpoint = new URL(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}`);
+    const functionsEndpoint = new URL(`http://${process.env.FIREBASE_FUNCTIONS_EMULATOR_HOST}`);
+    if (![authEndpoint, functionsEndpoint].every(endpoint => ['127.0.0.1', 'localhost'].includes(endpoint.hostname))) {
+      throw new Error('Callable smoke requires loopback emulators');
+    }
+    connectAuthEmulator(auth, authEndpoint.origin, { disableWarnings: true });
     const functions = getFunctions(app, 'europe-west1');
-    connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+    connectFunctionsEmulator(functions, functionsEndpoint.hostname, Number(functionsEndpoint.port));
     await signInWithEmailAndPassword(auth, user.email, password);
     clients.push({ app, call: httpsCallable(functions, 'socialAction') });
   }

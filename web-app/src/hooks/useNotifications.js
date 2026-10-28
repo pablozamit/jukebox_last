@@ -19,6 +19,7 @@ export function useNotifications({
   getServerTime,
 }) {
   const [activityEvents, setActivityEvents] = useState([]);
+  const [activityFeedUnavailable, setActivityFeedUnavailable] = useState(false);
   const [showPlayingBanner, setShowPlayingBanner] = useState(false);
   const [playingBannerData, setPlayingBannerData] = useState(null);
   const lastPlayedSongRef = useRef(null);
@@ -119,6 +120,7 @@ export function useNotifications({
       limit(30)
     );
     const unsubscribe = onSnapshot(statsQuery, (snapshot) => {
+      setActivityFeedUnavailable(false);
       snapshot.docs.forEach((doc) => {
         const ev = doc.data();
         if (!ev || !ev.ts || !ev.countedSession) return;
@@ -145,6 +147,10 @@ export function useNotifications({
         const name = ev.voterName === 'ANONYMOUS' ? t.anonymous : (ev.voterName || t.anonymous);
         toast(t.notifVotedOnYourSong.replace('{name}', name).replace('{title}', song.title).replace('{votes}', song.votes), 'info', 4500);
       });
+    }, (error) => {
+      setActivityFeedUnavailable(true);
+      setActivityEvents([]);
+      console.info('Activity feed unavailable; queue notifications remain active.', error.code);
     });
     return unsubscribe;
   }, [userId, t, toast, getServerTime]);
@@ -248,6 +254,7 @@ export function useNotifications({
 
   return {
     activityEvents,
+    activityFeedUnavailable,
     isLastCall,
     showPlayingBanner,
     playingBannerData,

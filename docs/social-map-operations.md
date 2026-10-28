@@ -54,6 +54,10 @@ npm --prefix web-app run test:social
 
 La matriz usa fixtures propios y los limpia al terminar. La reconciliación global con reloj adelantado requiere `--isolated` y solo debe ejecutarse en un emulador dedicado. Alternativamente `npm --prefix functions run test:emulators` inicia sus propios emuladores: no usarlo si los puertos ya están ocupados.
 
+La prueba `functions/test/signup-vote-proposal.integration.mjs` usa un proyecto de emulador cuyo nombre comienza por `demo-jukebox-flowtest-`, con Auth y Firestore aislados. Reproduce dos fallos heredados de las reglas en producción: una cuenta registrada puede superar los límites mediante peticiones directas y un usuario autenticado puede incrementar votos sin actualizar su perfil. La corrección de las reglas se ha preparado y probado localmente; no implica que esté aplicada en producción. No ejecutar la prueba en producción.
+
+La corrección local liga cada propuesta y voto a un evento nuevo mediante `lastEventId`. El frontend nuevo y las reglas antiguas no son compatibles, ni tampoco lo son el frontend antiguo y las reglas estrictas. Una eventual activación requiere una transición coordinada, pruebas y renovación de las sesiones antiguas; no publicar ambas piezas de forma aislada. El puente sigue procesando los eventos históricos sin consultar ese puntero. Queda pendiente un caso heredado: si cambia el nombre DJ después de votar y antes de que el puente procese el evento, este puede descartarlo al comparar con el nombre actual.
+
 ## Contratos y conservación de datos
 
 - `users` mantiene saldo gastable y puntos históricos. Comprar prendas solo descuenta saldo; no modifica nivel, historial ni rankings. Compra e inventario se escriben en una transacción, con recibo idempotente.
@@ -95,3 +99,53 @@ El mantenimiento programado se prueba por sus funciones de reconciliación en em
 - Las unitarias del backend también pasan con Node 22. El proceso de Functions del emulador local utilizó Node 24; falta validar el runtime desplegado y Cloud Scheduler.
 
 No se ha desplegado en producción. La captura de la prueba está en `test-results/social-map-desktop.jpg` (artefacto local ignorado por Git).
+
+## Transición de clientes antiguos y nuevos (28 de octubre de 2026)
+
+La fase temporal de `firestore.compat.rules` se publicó con autorización expresa en `jukebox-catrinero` el 28 de octubre de 2026 a las 19:18 (hora peninsular). Firebase confirmó la publicación y, al recargar, el texto activo coincidió exactamente con el archivo probado (SHA-256 normalizado `c231c64460a26e7e68e963db040fc84ad486301dc52c642764fe8539389240b6`). La consola indica que la propagación puede tardar hasta un minuto. No se han probado escrituras reales tras la publicación. Los comentarios iniciales del archivo lo llaman «candidato local»: describen su origen, no su estado actual.
+
+`firestore.compat.rules` es independiente y **no está conectado a `firebase.json`**, que apunta a `firestore.rules` con el contrato estricto y las rutas sociales. No ejecutar un despliegue genérico de reglas: reemplazaría la fase temporal y puede rechazar clientes antiguos y ampliar lecturas. Las reglas antiguas rechazan las escrituras nuevas que añaden `songs.lastEventId`; las estrictas rechazan propuestas y votos de pestañas antiguas que no lo escriben.
+
+La variante mínima de compatibilidad mantiene el enlace entre el token del perfil y el cambio de la cola, las capacidades y el registro seguro. Acepta el protocolo antiguo cuando el puntero no cambia y exige el contrato nuevo cuando cambia. Una canción que ya recibió un voto nuevo puede recibir después un voto antiguo conservando su puntero; detectar solamente la presencia de `lastEventId` bloquearía ese caso.
+
+Esta variante **no incorpora las rutas sociales ni el permiso recursivo de lectura de `voteEvents`**. Conserva la superficie de lectura de producción: leer eventos de una canción está permitido, pero la consulta `collectionGroup('voteEvents')` del ticker continúa denegada igual que con las reglas antiguas. La candidata final sí incluye esos permisos adicionales; deben revisarse por separado. El flag del mapa controla la interfaz, no la aplicación de las reglas de Firestore, por lo que apagarlo no anula una ampliación de permisos ya desplegada.
+
+Secuencia de transición:
+
+1. Validar y revisar la variante compatible y los artefactos exactos, manteniendo apagado el mapa social. No necesita Functions ni catálogo social para la convivencia de los dos formatos musicales.
+2. La variante compatible ya está publicada; sigue pendiente publicar la versión de frontend que escribe el puntero. La matriz local demuestra que ambos órdenes de uso sobre una misma canción son aceptados.
+3. Mantener una ventana de actualización de clientes y comprobar adopción. Un despliegue de Vercel no recarga las pestañas ya abiertas; el código actual no aporta un registro fiable de versión o caducidad de todos los clientes. No hay un plazo que por sí solo demuestre que desaparecieron los antiguos.
+4. Cerrar el carril antiguo solamente después de acordar la recarga de los clientes restantes y revisar el alcance final de las reglas. El archivo estricto actual contiene además rutas sociales y lectura recursiva: no debe confundirse ese alcance con la variante mínima. Si se necesita revertir el frontend durante la ventana, conservar la compatibilidad; restaurar las reglas antiguas bloquearía a los clientes nuevos que siguieran abiertos.
+
+La compatibilidad no puede distinguir de forma fiable un cliente antiguo de uno malicioso que elige ese formato. Una operación válida del carril antiguo puede omitir su evento o escribir varios eventos; la matriz lo reproduce expresamente. Por tanto, durante la ventana no existe garantía universal de un evento por token y pueden faltar o duplicarse estadísticas. Los topes, las escrituras aisladas de cola/perfil y el reinicio de arrays durante el registro siguen bloqueados. El registro antiguo con arrays idénticos funciona; si manda arrays obsoletos después de una carrera, falla íntegramente y conserva los tokens. También puede rechazarse un evento antiguo con nombre obsoleto o normalizado de forma distinta al perfil; no se promete compatibilidad absoluta ante esas carreras.
+
+### Matriz local de compatibilidad
+
+Con el emulador de Firestore ya disponible en `127.0.0.1:8080`, ejecutar desde la raíz:
+
+```powershell
+$env:FIRESTORE_EMULATOR_HOST='127.0.0.1:8080'
+node --test functions/test/rollout-compat.integration.mjs
+```
+
+Si no está arrancado, usar en otra terminal el procedimiento de emuladores anterior, o iniciar solamente Firestore con `firebase emulators:start --project demo-catrina-social --config firebase.local.json --only firestore`. No arrancar otro proceso sobre puertos ocupados.
+
+La suite rechaza hosts que no sean loopback. Carga las reglas antiguas del commit de producción `d333643d05700ef040f66df624d4e33b12a120e4`, la variante compatible y la candidata estricta en proyectos sintéticos separados `demo-rollout-*`; no reemplaza las reglas del proyecto de las otras suites. Usa contextos autenticados sintéticos y el SDK real de Firestore para reproducir las transacciones, sin credenciales de producción. Limpia sus proyectos al terminar. No ejecuta los bundles completos del navegador ni sustituye las pruebas existentes de Auth real en emuladores.
+
+Resultado local: **11/11 pruebas pasan**. Cubren la incompatibilidad directa entre protocolos, ambas secuencias mixtas, retirada de tokens, registro normal y con arrays obsoletos, capacidades, escrituras aisladas, el límite conocido de eventos del carril antiguo y la conservación de la superficie de lectura. La revisión adicional de seguridad no encontró un bypass nuevo fuera del carril antiguo descrito.
+
+La comparación de índices de solo lectura encontró un índice compuesto remoto de `songs`, `COLLECTION`, con `votes DESCENDING`, `firstVotedAt ASCENDING` y `__name__ ASCENDING`. La entrada añadida a `firestore.indexes.json` coincide: CLI completa el último campo automáticamente. Los siete índices locales incluyen todos los remotos; no había otros índices compuestos ni excepciones de campo/TTL que el archivo omitiera en esa consulta puntual. Revalidarlo antes de cualquier operación autorizada, sin `--force`.
+
+Sin el ordenador del bar no se certifican la versión real del puente instalada, su outbox, el estado actual de Kodi, los ACK de reproducción, las pestañas abiertas allí ni el cierre diario real. La transición de políticas y frontend no constituye esa validación ni resuelve la limitación no atómica del reset de las 02:00.
+
+## Estado de puesta en marcha, 28 de octubre de 2026, 20:30 Europe/Madrid
+
+Las reglas compatibilidad+social de `firestore.rollout-approved.rules` están publicadas y se han vuelto a leer por API: SHA-256 `295e003fc58a0f638e34293684be0da708b9698ea3263efe8f8ef3a30cc65d31`. La base anterior coincide con la compatibilidad documentada. No están publicadas las reglas estrictas ni el permiso collectionGroup del ticker. El ticker informa de actividad no disponible cuando su consulta se deniega; mantiene el aviso musical alternativo.
+
+Se han enviado los seis índices sociales nuevos conservando el índice musical existente, sin force. Su disponibilidad se comprueba por separado. Se han habilitado las APIs requeridas por Functions v2 y está en curso su despliegue Node22 en us-central1, junto a Firestore nam5. El catálogo estaba vacío antes de su carga. Las variables de Vercel Production+Preview se han guardado como mapa=true y región=us-central1; guardarlas no demuestra que la web se haya recompilado ni publicado.
+
+`firebase.rollout.json` es una configuración explícita para el despliegue autorizado compatible. `firebase.json` sigue apuntando al candidato estricto: no usar un deploy genérico de reglas. El Scheduler tiene un posible fijo aprobado de0,10USD/job/31d; Functions y reintentos se cobran por uso, sin techo prometido. El procesador de eventos conserva retry:true, con reintentos hasta éxito o vencimiento del periodo del proveedor (CLI indica hasta7d), y recibos transaccionales para no duplicar el efecto.
+
+Verificación local repetida contra las reglas exactas compat+social: mapa móvil390 y escritorio1280, login, avatares, minimización/ampliación, giro/desplazamiento/zoom con ratón, búsqueda y ticker denegado sin error no controlado. No se afirma prueba táctil física ni prueba Kodi. 22unitarias frontend y22puente,5backend, compilación correcta; persisten4avisos de lint anteriores. El arreglo de nombre DJ del puente es candidato, no instalado en el bar.
+
+La documentación histórica anterior no reemplaza este estado ni demuestra publicación del frontend. El bridge real, su outbox, Kodi y el reset02:00 siguen pendientes de acceso al ordenador del bar.
