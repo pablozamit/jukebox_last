@@ -12,6 +12,7 @@ import SocialPeopleList from './SocialPeopleList';
 import SocialInvitationInbox from './SocialInvitationInbox';
 import DjCard from './DjCard';
 import AvatarWardrobe from './AvatarWardrobe';
+import SocialMapPreview from './SocialMapPreview';
 import { useSocialDialogFocus } from './hooks/useSocialDialogFocus';
 import './SocialMapPanel.css';
 
@@ -188,12 +189,13 @@ function SocialMapPanelSession({ userId, isRegistered, userData, catalog = [], l
     }
   };
 
+  const pendingInvitations = invitations.filter(item => item.status === 'pending').length;
   const panel = <section ref={panelRef} className={`social-panel ${expanded ? 'is-expanded' : 'is-collapsed'}`} aria-label={expanded ? undefined : t.title} aria-labelledby={expanded ? 'social-panel-heading' : undefined} aria-modal={expanded || undefined} role={expanded ? 'dialog' : undefined} tabIndex={expanded ? -1 : undefined} onKeyDown={handlePanelKeyDown}>
     {!expanded ? <div className="social-collapsed-row">
-      <button ref={collapsedButtonRef} type="button" className="social-collapsed-main" onClick={() => setExpanded(true)} aria-label={t.open} aria-expanded="false" aria-controls="social-map-panel-content">
-        <span className="social-live-glyph" aria-hidden="true"><span /></span><span className="social-title-copy"><strong>{t.title}</strong><small>{count} {visiblePeopleLabel}</small></span><span className="social-collapsed-cta"><MapPin size={15} aria-hidden="true" /><span>{language === 'en' ? 'Explore map' : 'Explorar mapa'}</span><ChevronDown size={14} aria-hidden="true" /></span>
+      <button ref={collapsedButtonRef} type="button" className="social-collapsed-main" onClick={() => setExpanded(true)} aria-label={`${t.open}. ${count} ${visiblePeopleLabel}${pendingInvitations ? `. ${pendingInvitations} ${t.invitations}` : ''}`} aria-expanded="false" aria-controls="social-map-panel-content">
+        <span className="social-collapsed-heading"><span className="social-title-copy"><strong>{t.title}</strong><small><span className="social-live-glyph" aria-hidden="true"><span /></span>{count} {visiblePeopleLabel}</small></span><span className="social-preview-cta">{pendingInvitations > 0 && <span className="social-preview-invites"><Bell size={13} aria-hidden="true" />{pendingInvitations}</span>}<span className="social-collapsed-cta"><MapPin size={15} aria-hidden="true" /><span>{language === 'en' ? 'Explore map' : 'Explorar mapa'}</span><ChevronDown size={14} aria-hidden="true" /></span></span></span>
+        <SocialMapPreview lang={language} />
       </button>
-      {invitations.some(item => item.status === 'pending') && <button type="button" className="social-invitation-badge" onClick={() => setExpanded(true)} aria-label={t.invitations} aria-controls="social-map-panel-content"><Bell size={15} /><b>{invitations.filter(item => item.status === 'pending').length}</b></button>}
     </div> : <>
       <header className="social-panel-header">
         <div className="social-panel-heading"><span className="social-live-glyph" aria-hidden="true"><span /></span><div><span className="social-eyebrow" id="social-panel-heading">{t.title}</span><p><Users size={14} aria-hidden="true" />{count} {visiblePeopleLabel}{stale && <em>{t.stale}</em>}</p></div></div>
