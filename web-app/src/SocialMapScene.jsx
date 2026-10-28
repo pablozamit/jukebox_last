@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import SocialPeopleList from './SocialPeopleList';
 import { createAvatar } from './map/createAvatar';
-import { getZonePosition } from './map/zones';
+import { getZonePosition, ROOM_MAP } from './map/zones';
 import { getCameraFov, getCameraPose } from './map/camera';
 
 export default function SocialMapScene({ people, onSelect, focusZone = null, labels, lang }) {
@@ -31,6 +31,8 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
     let motionQuery;
     let motionHandler;
     let THREE;
+    let controls;
+    let cameraInitialized = false;
     let cameraTransition = null;
     let cameraTarget;
     const avatarGroups = avatarGroupsRef.current;
@@ -49,7 +51,9 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
         }
         THREE = await import('three');
         const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+        const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
         if (disposed) return;
+        motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
         scene = new THREE.Scene();
         scene.background = new THREE.Color('#17130f');
         camera = new THREE.PerspectiveCamera(37, 1, 0.1, 1000);
@@ -65,7 +69,24 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
         canvas = renderer.domElement;
         canvas.className = 'social-map-canvas';
         canvas.setAttribute('aria-hidden', 'true');
+        canvas.style.touchAction = 'none';
         host.appendChild(canvas);
+        controls = new OrbitControls(camera, canvas);
+        controls.target.copy(cameraTarget);
+        cameraTarget = controls.target;
+        controls.enableDamping = !motionQuery.matches;
+        controls.dampingFactor = 0.08;
+        controls.screenSpacePanning = true;
+        controls.minDistance = 6;
+        controls.maxDistance = 44;
+        controls.minPolarAngle = 0.12;
+        controls.maxPolarAngle = 1.48;
+        controls.addEventListener('start', () => { cameraTransition = null; });
+        controls.addEventListener('change', () => {
+          clampCameraTarget(controls, camera, THREE);
+          requestRender();
+        });
+        controls.update();
 
         scene.add(new THREE.HemisphereLight(0xf8e8c7, 0x211a17, 2.1));
         const key = new THREE.DirectionalLight(0xffd7a0, 2.6);
@@ -99,7 +120,11 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
 
         raycaster = new THREE.Raycaster();
         const pointer = new THREE.Vector2();
+        let pointerGesture = null;
         const handleClick = event => {
+          const gesture = pointerGesture;
+          pointerGesture = null;
+          if (gesture?.moved) return;
           const rect = canvas.getBoundingClientRect();
           pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
           pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -110,21 +135,42 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
           if (node?.userData.uid) onSelectRef.current(node.userData.uid);
         };
         const handlePointerMove = event => {
+          if (pointerGesture && pointerGesture.pointerId === event.pointerId
+            && Math.hypot(event.clientX - pointerGesture.x, event.clientY - pointerGesture.y) > 7) {
+            pointerGesture.moved = true;
+          }
           const rect = canvas.getBoundingClientRect();
           pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
           raycaster.setFromCamera(pointer, camera);
           canvas.style.cursor = raycaster.intersectObjects(avatarGroups, true).length ? 'pointer' : 'grab';
         };
+        const handlePointerDown = event => {
+          if (!event.isPrimary) {
+            if (pointerGesture) pointerGesture.moved = true;
+            return;
+          }
+          pointerGesture = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+          canvas.style.cursor = 'grabbing';
+        };
+        const handlePointerUp = () => { canvas.style.cursor = 'grab'; };
+        const handlePointerCancel = () => { pointerGesture = null; canvas.style.cursor = 'grab'; };
+        canvas.addEventListener('pointerdown', handlePointerDown);
+        canvas.addEventListener('pointerup', handlePointerUp);
+        canvas.addEventListener('pointercancel', handlePointerCancel);
         canvas.addEventListener('click', handleClick);
         canvas.addEventListener('pointermove', handlePointerMove);
         resize._cleanupCanvas = () => {
+          canvas?.removeEventListener('pointerdown', handlePointerDown);
+          canvas?.removeEventListener('pointerup', handlePointerUp);
+          canvas?.removeEventListener('pointercancel', handlePointerCancel);
           canvas?.removeEventListener('click', handleClick);
           canvas?.removeEventListener('pointermove', handlePointerMove);
         };
         resizeObserver = new ResizeObserver(resize);
         resizeObserver.observe(host);
-        motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
         motionHandler = event => {
+          controls.enableDamping = !event.matches;
+          controls.update();
           if (!event.matches || !cameraTransition) return;
           camera.position.copy(cameraTransition.toPosition);
           cameraTarget.copy(cameraTransition.toTarget);
@@ -162,7 +208,11 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
       camera.aspect = width / height;
       camera.fov = getCameraFov(camera.aspect);
       camera.updateProjectionMatrix();
-      focusCamera(focusZoneRef.current, true);
+      if (controls) controls.maxDistance = Math.max(44, getCameraPose(null, camera.aspect, camera.fov).distance + 12, camera.position.distanceTo(cameraTarget) + 2);
+      if (!cameraInitialized) {
+        focusCamera(focusZoneRef.current || 'bar', true);
+        cameraInitialized = true;
+      }
       requestRender();
     }
 
@@ -170,6 +220,8 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
       if (!camera || !cameraTarget) return;
       const pose = getCameraPose(zoneId, camera.aspect, camera.fov);
       if (!pose) return;
+      // Keep enough zoom-out room to preserve the fitted overview pose.
+      if (controls) controls.maxDistance = Math.max(44, pose.distance + 12, getCameraPose(null, camera.aspect, camera.fov).distance + 12);
       cameraTransition = immediate || motionQuery?.matches ? null : {
         fromPosition: camera.position.clone(),
         fromTarget: cameraTarget.clone(),
@@ -181,6 +233,7 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
         camera.position.set(...pose.position);
         cameraTarget.set(...pose.target);
         camera.lookAt(cameraTarget);
+        controls?.update();
       }
       requestRender();
     }
@@ -199,8 +252,9 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
           camera.lookAt(cameraTarget);
           if (progress === 1) cameraTransition = null;
         }
+        const controlsMoving = controls?.update() || false;
         renderer.render(scene, camera);
-        if (cameraTransition) requestRender();
+        if (cameraTransition || controlsMoving) requestRender();
       });
     }
 
@@ -211,6 +265,7 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
       resizeObserver?.disconnect();
       document.removeEventListener('visibilitychange', visibilityHandler);
       motionQuery?.removeEventListener?.('change', motionHandler);
+      controls?.dispose();
       resize._cleanupCanvas?.();
       sceneContextRef.current = null;
       avatarGroups.forEach(disposeObject);
@@ -324,4 +379,21 @@ function disposeObject(object) {
     if (Array.isArray(child.material)) child.material.forEach(material => material.dispose());
     else { child.material?.map?.dispose(); child.material?.dispose(); }
   });
+}
+
+function clampCameraTarget(controls, camera) {
+  if (!controls?.target || !camera) return;
+  const target = controls.target;
+  const x = Math.max(ROOM_MAP.bounds.minX - 2, Math.min(ROOM_MAP.bounds.maxX + 2, target.x));
+  const y = Math.max(0.25, Math.min(4.5, target.y));
+  const z = Math.max(ROOM_MAP.bounds.minZ - 2, Math.min(ROOM_MAP.bounds.maxZ + 2, target.z));
+  const shiftX = x - target.x;
+  const shiftY = y - target.y;
+  const shiftZ = z - target.z;
+  if (shiftX || shiftY || shiftZ) {
+    target.set(x, y, z);
+    camera.position.x += shiftX;
+    camera.position.y += shiftY;
+    camera.position.z += shiftZ;
+  }
 }

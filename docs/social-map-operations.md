@@ -2,6 +2,8 @@
 
 La música conserva sus controles. El panel «La Catrina en vivo» se abre de forma opcional. Minimizarlo no oculta a quien haya elegido aparecer; «Ocultarme» sí retira su presencia. La zona es declarada por la persona, sin geolocalización.
 
+Al abrirlo, el mapa ocupa casi toda la pantalla. Arrastrar gira la vista; con ratón se usa la rueda para acercar y el botón derecho para desplazar. En pantalla táctil, dos dedos desplazan y permiten acercar o alejar. Estos movimientos solo cambian la cámara y no modifican la zona declarada.
+
 ## Prueba local en Windows
 
 Requisitos: Node.js 22, Java 21, Firebase CLI y las dependencias de `web-app` y `functions` instaladas con `npm ci`. No ejecutar `test_security_rules.py`: es una prueba anterior que apunta a producción.

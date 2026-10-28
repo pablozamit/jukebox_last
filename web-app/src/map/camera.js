@@ -15,9 +15,17 @@ export function getCameraFov(aspect) {
 export function getCameraPose(zoneId, aspect, verticalFov = 37) {
   const zone = MAP_ZONES.find(item => item.id === zoneId);
   const overview = !zone;
+  const venueFloors = ROOM_MAP.floorRegions.filter(region => ['terrace', 'vestibule', 'main-room'].includes(region.name));
+  const venueBounds = venueFloors.reduce((bounds, region) => ({
+    minX: Math.min(bounds.minX, region.minX),
+    maxX: Math.max(bounds.maxX, region.maxX),
+    minZ: Math.min(bounds.minZ, region.minZ),
+    maxZ: Math.max(bounds.maxZ, region.maxZ),
+  }), { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
+  const barFocus = zone?.id === 'bar';
   const target = overview
-    ? [0, 1.2, (ROOM_MAP.bounds.minZ + ROOM_MAP.bounds.maxZ) / 2]
-    : [zone.anchor[0], 1.1, zone.anchor[2]];
+    ? [0, 1.2, (venueBounds.minZ + venueBounds.maxZ) / 2]
+    : barFocus ? [zone.anchor[0], 1.1, 10.9] : [zone.anchor[0], 1.1, zone.anchor[2]];
   const direction = normalize([21, 21, -19.4]);
   const forward = direction.map(value => -value);
   const right = normalize([forward[2], 0, -forward[0]]);
@@ -28,14 +36,14 @@ export function getCameraPose(zoneId, aspect, verticalFov = 37) {
   ]);
   const verticalTangent = Math.tan(verticalFov * Math.PI / 360) * 0.88;
   const horizontalTangent = verticalTangent * Math.max(0.25, aspect);
-  let minX = ROOM_MAP.bounds.minX;
-  let maxX = ROOM_MAP.bounds.maxX;
-  let minZ = ROOM_MAP.bounds.minZ;
-  let maxZ = ROOM_MAP.bounds.maxZ;
+  let minX = venueBounds.minX;
+  let maxX = venueBounds.maxX;
+  let minZ = venueBounds.minZ;
+  let maxZ = venueBounds.maxZ;
   let minY = -0.3;
   let maxY = 6;
   if (!overview) {
-    const span = zone.id === 'terrace' ? [5.2, 3.3] : zone.id === 'tables' ? [4.4, 4.2] : zone.id === 'entrance' ? [2.6, 3.1] : [3.8, 3.7];
+    const span = zone.id === 'terrace' ? [5.2, 3.3] : zone.id === 'tables' ? [4.4, 4.2] : zone.id === 'entrance' ? [2.6, 3.1] : barFocus ? [3.8, 6.8] : [3.8, 3.7];
     minX = zone.anchor[0] - span[0];
     maxX = zone.anchor[0] + span[0];
     minZ = zone.anchor[2] - span[1];

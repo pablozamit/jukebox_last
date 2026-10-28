@@ -29,9 +29,10 @@
 .social-live-glyph span { position: absolute; bottom: 3px; left: 50%; width: 9px; height: 1px; background: var(--social-gold); transform: translateX(-50%); }
 .social-invitation-badge { display: flex; gap: 5px; align-items: center; padding: 0 13px; border: 0; border-left: 1px solid var(--social-border); background: rgba(144,64,49,.12); color: #e6b9a5; cursor: pointer; }
 .social-invitation-badge b, .social-inbox-toggle b { min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: #914638; color: #fff3df; font-size: 10px; }
-.social-panel.is-expanded { padding: 15px 16px 17px; }
+.social-panel.is-expanded { position: fixed; z-index: 120; inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); display: flex; flex-direction: column; max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain; padding: 15px 16px 17px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.72), 0 20px 60px rgba(0,0,0,.7); }
+.social-panel.is-expanded:focus { outline: none; }
 .social-panel-header, .social-panel-tools, .social-panel-heading, .social-panel-heading p { display: flex; align-items: center; }
-.social-panel-header { justify-content: space-between; gap: 10px; }
+.social-panel-header { position: sticky; z-index: 5; top: -15px; justify-content: space-between; gap: 10px; margin: -15px -16px 0; padding: 12px 16px 9px; border-bottom: 1px solid rgba(200,162,88,.14); background: linear-gradient(155deg, #211a13, #17130f); }
 .social-panel-heading { gap: 9px; min-width: 0; }
 .social-panel-heading .social-live-glyph { border-color: rgba(122, 164, 104, .48); }
 .social-panel-heading .social-live-glyph::before, .social-panel-heading .social-live-glyph span { border-color: #86a97b; background: #86a97b; }
@@ -41,6 +42,8 @@
 .social-panel-tools { gap: 4px; }
 .social-icon-button, .social-control-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; padding: 0 8px; border: 1px solid transparent; background: transparent; color: var(--social-muted); cursor: pointer; }
 .social-icon-button:hover, .social-control-button:hover { border-color: var(--social-border); color: var(--social-ink); }
+.social-minimize-button { min-height: 40px; padding: 0 11px; border-color: rgba(200,162,88,.27); color: var(--social-ink); }
+.social-minimize-button span { font-size: 11px; }
 .social-control-button { padding: 0 10px; border-color: rgba(170,80,64,.3); color: #e8b3a0; font-size: 11px; }
 .social-presence-help { margin: 7px 0 12px 31px; color: rgba(244,236,217,.48); font-size: 11px; line-height: 1.45; }
 .social-status-message, .social-inline-message { margin: 8px 0; padding: 7px 9px; border: 1px solid rgba(176, 115, 67, .34); color: #e8c092; background: rgba(101, 62, 34, .15); font-size: 12px; }
@@ -108,15 +111,15 @@
 .social-own-actions .social-favorite-entry { max-width: min(48%, 280px); margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .social-view-tabs { gap: 5px; height: auto; min-height: 42px; margin-top: 10px; padding: 4px; border: 1px solid rgba(200,162,88,.15); background: rgba(8,7,6,.3); }
 .social-view-tabs button { min-height: 32px; padding: 0 13px; border: 1px solid transparent; }
-.social-view-tabs button[aria-selected="true"] { border-color: rgba(200,162,88,.3); background: linear-gradient(145deg,rgba(200,162,88,.18),rgba(118,75,43,.11)); color: #f4e6c8; }
+.social-view-tabs button[aria-pressed="true"] { border-color: rgba(200,162,88,.3); background: linear-gradient(145deg,rgba(200,162,88,.18),rgba(118,75,43,.11)); color: #f4e6c8; }
 .social-view-tabs button[aria-selected="true"]::after { display: none; }
 .social-map-content { height: clamp(370px, 48vw, 520px); min-height: 340px; margin-top: 8px; border-color: rgba(216,173,100,.28); background: radial-gradient(ellipse at 50% 43%,#3c3023 0%,#281e17 45%,#17120f 100%); box-shadow: inset 0 0 0 1px rgba(246,213,153,.035), 0 13px 34px rgba(0,0,0,.28); }
+.social-map-help { flex: none; margin: 7px 0 0; color: var(--social-muted); font-size: 11px; line-height: 1.45; }
 .social-map-content::after { position: absolute; z-index: 1; inset: 0; content: ''; pointer-events: none; box-shadow: inset 0 0 75px rgba(10,7,5,.28); }
 .social-map-stage { background: radial-gradient(ellipse at 50% 45%,rgba(220,171,94,.065),transparent 68%); }
 .social-map-placeholder { border-color: rgba(234,196,126,.37); background: linear-gradient(130deg,rgba(139,97,53,.25),rgba(77,65,47,.15)); box-shadow: inset 0 0 0 6px rgba(11,10,9,.36),inset 0 0 0 7px rgba(232,190,115,.12),0 8px 36px rgba(0,0,0,.23); }
 .social-map-room-label { color: rgba(248,226,184,.74); text-shadow: 0 1px 8px rgba(0,0,0,.75); }
-.social-panel.is-large { position: fixed; z-index: 120; inset: 10px; display: flex; flex-direction: column; padding: 16px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.72), 0 20px 60px rgba(0,0,0,.7); }
-.social-panel.is-large .social-map-content { flex: 1; height: auto; min-height: 0; }
+.social-panel.is-expanded .social-map-content { flex: 1 0 340px; height: auto; }
 
 .social-avatar { position: relative; display: inline-block; width: var(--avatar-size); height: var(--avatar-size); flex: none; overflow: hidden; border-radius: 50%; background: radial-gradient(circle at 50% 36%, #eee0c7 0 37%, #b1905d 38% 39%, #25201b 40% 100%); vertical-align: middle; }
 .social-avatar-head { position: absolute; z-index: 2; top: 24%; left: 37%; width: 26%; height: 27%; border-radius: 47% 47% 43% 43%; background: #c98f68; }
@@ -146,7 +149,8 @@
 [data-theme="neon"] .social-map-content { border-color: rgba(176,38,255,.2); background: radial-gradient(ellipse at 49% 48%,#27202d 0%,#17141a 64%,#110f13 100%); }
 
 @media (max-width: 600px) {
-  .social-panel.is-expanded { padding: 12px 11px; }
+  .social-panel.is-expanded { inset: max(4px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left)); max-height: calc(100dvh - 8px); padding: 12px 11px; }
+  .social-panel-header { top: -12px; margin: -12px -11px 0; padding: 10px 11px 8px; }
   .social-panel-tools { gap: 0; }
   .social-presence-main { align-items: stretch; gap: 6px; }
   .social-presence-main .social-appear-controls { flex-wrap: wrap; gap: 6px; }
@@ -159,8 +163,7 @@
   .social-own-actions { align-items: flex-start; }
   .social-own-actions .social-favorite-entry { max-width: 100%; }
   .social-view-tabs button { flex: 1; justify-content: center; }
-  .social-panel.is-large { inset: 6px; padding: 12px 10px; }
-  .social-panel.is-large .social-map-content { max-height: none; }
+  .social-panel.is-expanded .social-map-content { height: max(42dvh, 360px); min-height: 360px; max-height: none; flex-basis: max(42dvh, 360px); }
   .social-wardrobe-backdrop, .social-dj-card-wrap { align-items: flex-end; padding: 0; }
   .social-dj-card, .social-wardrobe, .social-favorite-picker { width: 100%; max-height: 88dvh; padding: 14px; border-right: 0; border-bottom: 0; border-left: 0; }
   .social-wardrobe { padding: 0; }
