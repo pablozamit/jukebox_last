@@ -30,6 +30,18 @@ body {
 .dj-invitation-actions button:focus-visible { outline: 2px solid white; outline-offset: 3px; }
 .profile-map-entry { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 48px; padding: 10px 14px; color: #f5e3b9; background: #34291c; border: 1px solid #987b44; border-radius: 8px; font-size: 13px; font-weight: 700; text-align: left; }
 .profile-map-entry:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+.how-guide-content { position: relative; z-index: 1; color: #f5ead4; }
+.how-guide-eyebrow { color: #d5ad65; font-size: 10px; font-weight: 800; letter-spacing: .16em; }
+.how-guide h2 { margin: 7px 30px 6px 0; color: #f8e7c2; font: 700 25px/1.1 Georgia,serif; }
+.how-guide-intro { color: #d8cbb4; font-size: 13px; line-height: 1.5; }
+.how-guide-sections { margin-top: 18px; display: grid; gap: 15px; }
+.how-guide-section { display: flex; align-items: flex-start; gap: 11px; }
+.how-guide-section > span { flex: 0 0 28px; height: 28px; display: grid; place-items: center; color: #e4bd70; background: rgba(225,188,116,.1); border-radius: 50%; }
+.how-guide-section h3 { color: #f4dfb5; font-size: 13px; font-weight: 800; }
+.how-guide-section p { margin-top: 3px; color: #d3c4ad; font-size: 12px; line-height: 1.5; }
+.how-guide-actions { display: grid; gap: 7px; margin-top: 20px; }
+.how-guide-actions button { min-height: 44px; font-size: 13px; font-weight: 700; }
+.how-guide-actions button:last-child { color: #e6d3ad; text-decoration: underline; text-underline-offset: 3px; }
 
 :root {
   --catrina-gold: #b58a3a;

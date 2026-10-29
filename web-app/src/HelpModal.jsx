@@ -1,65 +1,27 @@
 import { X } from 'lucide-react';
+import { useEffect } from 'react';
 import { CornerFlourish } from './Ornaments';
 
-export default function HelpModal({ isCatrina, mainTextClass, helpStep, setHelpStep, onClose, t }) {
+export default function HelpModal({ isCatrina, onClose, onRegister, onLogin, isRegistered, socialEnabled, t }) {
+  useEffect(() => {
+    const onKey = event => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const sections = socialEnabled ? t.howSections : t.howSections.filter(section => section.key !== 'map');
   return (
-    <div className="jukebox-modal-overlay">
-      <div className="jukebox-modal">
-        {isCatrina && (
-          <>
-            <CornerFlourish position="tl" size={28} />
-            <CornerFlourish position="tr" size={28} />
-            <CornerFlourish position="bl" size={28} />
-            <CornerFlourish position="br" size={28} />
-          </>
-        )}
-        <button onClick={onClose} className={`absolute top-4 right-4 transition-colors ${isCatrina ? 'jukebox-modal-close' : 'text-zinc-500 hover:text-white'}`}>
-          <X size={24} />
-        </button>
-
-        <div className={`text-center space-y-6 ${isCatrina ? 'relative z-[1]' : ''}`}>
-          <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-2 ${isCatrina ? 'jukebox-help-step-indicator' : 'bg-brand-gold/10 text-brand-gold'}`}>
-            <span className={`text-2xl font-black ${!isCatrina ? 'text-brand-gold' : ''}`}>{helpStep + 1}</span>
-          </div>
-
-          <div>
-            <h2 className={`text-2xl font-bold mb-3 ${mainTextClass}`}>
-              {t.helpSteps[helpStep].title}
-            </h2>
-            <p className={isCatrina ? 'text-brand-gold/50 leading-relaxed' : 'text-zinc-400 leading-relaxed'}>
-              {t.helpSteps[helpStep].text}
-            </p>
-          </div>
-
-          <div className="flex gap-2 justify-center">
-            {t.helpSteps.map((_, s) => (
-              <div
-                key={s}
-                className="jukebox-help-dot"
-                style={{
-                  height: '6px',
-                  width: '32px',
-                  borderRadius: '9999px',
-                  transition: 'background-color 0.3s',
-                  backgroundColor: s === helpStep
-                    ? (isCatrina ? 'var(--catrina-gold)' : '#cca53f')
-                    : (isCatrina ? 'rgba(255,255,255,0.06)' : '#27272a'),
-                }}
-              />
-            ))}
-          </div>
-
-          <button
-            onClick={() => {
-              if (helpStep < t.helpSteps.length - 1) setHelpStep(helpStep + 1);
-              else onClose();
-            }}
-            className={`w-full font-bold py-4 transition-all ${isCatrina ? 'jukebox-btn-primary rounded-sm' : 'bg-brand-gold text-zinc-950 rounded-2xl hover:scale-[1.02] active:scale-95'}`}
-          >
-            {helpStep < t.helpSteps.length - 1 ? t.next : t.finish}
-          </button>
+    <div className="jukebox-modal-overlay" onClick={onClose}>
+      <section className="jukebox-modal how-guide" role="dialog" aria-modal="true" aria-labelledby="how-guide-title" onClick={event => event.stopPropagation()}>
+        {isCatrina && <><CornerFlourish position="tl" size={28} /><CornerFlourish position="tr" size={28} /></>}
+        <button type="button" onClick={onClose} aria-label={t.howClose} className={`absolute top-4 right-4 transition-colors ${isCatrina ? 'jukebox-modal-close' : 'text-zinc-500 hover:text-white'}`}><X size={24} /></button>
+        <div className="how-guide-content">
+          <span className="how-guide-eyebrow">LA CATRINA · JUKEBOX</span>
+          <h2 id="how-guide-title">{t.musicInvitationTitle}</h2>
+          <p className="how-guide-intro">{t.howIntro}</p>
+          <div className="how-guide-sections">{sections.map(section => <div className="how-guide-section" key={section.key}><span aria-hidden="true">{section.icon}</span><div><h3>{section.title}</h3><p>{section.text}</p></div></div>)}</div>
+          {!isRegistered && <div className="how-guide-actions"><button type="button" onClick={onRegister} className="jukebox-btn-primary">{t.djCreateAccount} →</button><button type="button" onClick={onLogin}>{t.djAlreadyAccount}</button></div>}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

@@ -20,7 +20,7 @@ import PlayingBanner from './PlayingBanner';
 import AuthModal from './AuthModal';
 import OutOfTokensModal from './OutOfTokensModal';
 import DesignSurveyModal from './DesignSurveyModal';
-import { Search, X, HelpCircle, ArrowUp } from 'lucide-react';
+import { Search, X, ArrowUp } from 'lucide-react';
 import { useServerTime } from './hooks/useServerTime';
 import { useJukeboxData } from './hooks/useJukeboxData';
 import { useUserSession } from './hooks/useUserSession';
@@ -78,7 +78,6 @@ export default function App() {
   const favorites = useMemo(() => userData?.favorites || [], [userData?.favorites]);
 
   const [showHelp, setShowHelp] = useState(false);
-  const [helpStep, setHelpStep] = useState(0);
   const [showScroll, setShowScroll] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
@@ -453,25 +452,16 @@ export default function App() {
           {lang === 'en' ? 'Search or suggest a song' : 'Busca o propone una canción'}
           <ArrowUp size={15} className="rotate-45" aria-hidden="true" />
         </a>
-        {!isRegistered && <section className="dj-invitation" aria-labelledby="dj-invitation-title">
-          <div className="dj-invitation-heading"><span aria-hidden="true">✦</span><div><span className="dj-invitation-eyebrow">{t.djInvitationEyebrow}</span><h2 id="dj-invitation-title">{t.djInvitationTitle}</h2></div></div>
-          <p>{t.djInvitationText}</p>
-          <div className="dj-invitation-benefits"><span>♫ <strong>6</strong> {t.djProposals}</span><span>♥ <strong>10</strong> {t.djVotes}</span><span>✦ {SOCIAL_MAP_ENABLED ? t.djAvatar : t.djAchievements}</span></div>
-          <div className="dj-invitation-actions"><button type="button" onClick={() => { setAuthMode('register'); setShowRegister(true); }}>{t.djCreateAccount} <span aria-hidden="true">→</span></button><button type="button" onClick={() => { setAuthMode('login'); setShowLogin(true); }}>{t.djAlreadyAccount}</button></div>
-        </section>}
+        <section className="dj-invitation" aria-labelledby="dj-invitation-title">
+          <div className="dj-invitation-heading"><span aria-hidden="true">♫</span><h2 id="dj-invitation-title">{t.musicInvitationTitle}</h2></div>
+          <p>{t.musicInvitationText}</p>
+          <div className="dj-invitation-actions"><button type="button" onClick={() => setShowHelp(true)}>{t.howItWorks} <span aria-hidden="true">→</span></button></div>
+        </section>
       </div>
 
       {/* ===== MAIN ===== */}
       <main className="p-4 space-y-6 max-w-lg mx-auto">
         {IS_LOCAL_DEMO && <p className="text-center text-xs text-theme-muted" role="status">{lang === 'en' ? 'Local preview · test data' : 'Vista local · datos de prueba'}</p>}
-        <button
-          onClick={() => { setHelpStep(0); setShowHelp(true); }}
-          className={`w-full flex items-center justify-center gap-2 py-2 transition-colors text-sm font-medium ${isCatrina ? 'text-brand-gold/30 hover:text-brand-gold' : 'text-zinc-500 hover:text-brand-neon-purple'}`}
-        >
-          <HelpCircle size={18} />
-          {t.howItWorks}
-        </button>
-
         {isLastCall && showLastCall && (
           <LastCallBanner isCatrina={isCatrina} t={t} onClose={() => setShowLastCall(false)} />
         )}
@@ -615,9 +605,11 @@ export default function App() {
         <HelpModal
           isCatrina={isCatrina}
           mainTextClass={mainTextClass}
-          helpStep={helpStep}
-          setHelpStep={setHelpStep}
           onClose={() => setShowHelp(false)}
+          isRegistered={isRegistered}
+          socialEnabled={SOCIAL_MAP_ENABLED}
+          onRegister={() => { setShowHelp(false); setAuthMode('register'); setShowRegister(true); }}
+          onLogin={() => { setShowHelp(false); setAuthMode('login'); setShowLogin(true); }}
           t={t}
         />
       )}

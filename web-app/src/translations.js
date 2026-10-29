@@ -72,10 +72,17 @@ export const translations = {
         text: "Si tienes cuenta, busca el regalo y responde la trivia para conseguir propuestas y votos extra."
       }
     ],
-    djInvitationEyebrow: "TU PASE DE DJ",
-    djInvitationTitle: "Tu música. Tu sitio.",
-    djInvitationText: "Crea tu perfil y vive La Catrina a tu manera.",
-    djProposals: "propuestas", djVotes: "votos", djAvatar: "Tu muñeco y mapa", djAchievements: "Tus logros",
+    musicInvitationTitle: "Tú eliges la música",
+    musicInvitationText: "Propón canciones y vota por las que quieres escuchar.",
+    howClose: "Cerrar explicación",
+    howIntro: "Elige lo que suena en La Catrina y descubre todo lo que puedes hacer con tu perfil DJ.",
+    howSections: [
+      { key: 'music', icon: '♫', title: 'Propón y vota canciones', text: 'Busca una canción y propónla para añadirla a la cola. Vota las que ya están en cola para ayudarlas a subir. Cuando suenen, recuperas tu propuesta o voto.' },
+      { key: 'account', icon: '✦', title: 'Crea tu perfil DJ', text: 'Al registrarte eliges tu nombre de DJ y puedes guardar tus canciones favoritas. Tendrás hasta 6 canciones propuestas y 10 votos simultáneos, frente a 3 y 5 como invitado.' },
+      { key: 'points', icon: '★', title: 'Gana puntos y logros', text: 'Cuando suena una canción que propusiste ganas 10 puntos; si la votaste, ganas 5. Usa tus puntos para subir de nivel y canjear votos; desbloquea logros participando.' },
+      { key: 'map', icon: '⌖', title: 'Explora el mapa del bar', text: 'Abre el mapa, personaliza tu muñeco y elige si quieres aparecer y en qué zona. Tu ubicación no se detecta automáticamente; puedes ocultarte cuando quieras.' },
+      { key: 'trivia', icon: '🎁', title: 'Juega a la trivia', text: 'Con una cuenta, responde al regalo de trivia musical para conseguir propuestas y votos extra.' }
+    ],
     djCreateAccount: "Crear mi cuenta", djAlreadyAccount: "Ya tengo cuenta · Entrar",
     next: "Siguiente",
     finish: "Entendido",
@@ -367,10 +374,17 @@ export const translations = {
         text: "With an account, find the gift and answer the music trivia to earn extra proposals and votes."
       }
     ],
-    djInvitationEyebrow: "YOUR DJ PASS",
-    djInvitationTitle: "Your music. Your place.",
-    djInvitationText: "Create your profile and make La Catrina yours.",
-    djProposals: "proposals", djVotes: "votes", djAvatar: "Your avatar & map", djAchievements: "Your achievements",
+    musicInvitationTitle: "You choose the music",
+    musicInvitationText: "Suggest songs and vote for what you want to hear.",
+    howClose: "Close explanation",
+    howIntro: "Choose what plays at La Catrina and discover what you can do with your DJ profile.",
+    howSections: [
+      { key: 'music', icon: '♫', title: 'Suggest and vote for songs', text: 'Search for a song and suggest it to add it to the queue. Vote for songs already in the queue to help them rise. When they play, your proposal or vote becomes available again.' },
+      { key: 'account', icon: '✦', title: 'Create your DJ profile', text: 'Register to choose your DJ name and save your favourite songs. You can have up to 6 proposed songs and 10 votes at once, compared with 3 and 5 as a guest.' },
+      { key: 'points', icon: '★', title: 'Earn points and achievements', text: 'When a song you proposed plays, you earn 10 points; if you voted for it, you earn 5. Earn points to level up and redeem votes; unlock achievements by taking part.' },
+      { key: 'map', icon: '⌖', title: 'Explore the bar map', text: 'Open the map, customize your avatar and choose whether and where to appear. Your location is not detected automatically; you can hide whenever you like.' },
+      { key: 'trivia', icon: '🎁', title: 'Play trivia', text: 'With an account, answer the music trivia gift to earn extra proposals and votes.' }
+    ],
     djCreateAccount: "Create my account", djAlreadyAccount: "Have an account? Sign in",
     next: "Next",
     finish: "Got it",
