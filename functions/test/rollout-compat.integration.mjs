@@ -261,3 +261,13 @@ test('minimal compat preserves baseline read surface: nested events only, no soc
     await assert.rejects(getDoc(doc(user.db, 'rooms', 'catrina', 'presence', 'synthetic')), denied);
   }
 });
+
+test('rollout permits filtered activity feed for anonymous visitors only', async () => {
+  await seed('rollout', 'songs/feed-song/voteEvents/public', { kind: 'vote_event', title: 'Public song' });
+  await seed('rollout', 'other/private/voteEvents/private', { kind: 'private', title: 'Private' });
+  const db = environments.rollout.authenticatedContext('anonymous-feed', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
+  const events = await getDocs(query(collectionGroup(db, 'voteEvents'), where('kind', '==', 'vote_event')));
+  assert.ok(events.docs.some(event => event.id === 'public'));
+  await assert.rejects(getDocs(collectionGroup(db, 'voteEvents')), denied);
+  await assert.rejects(getDoc(doc(db, 'other/private/voteEvents/private')), denied);
+});

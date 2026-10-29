@@ -241,6 +241,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // El feed consulta el grupo completo y debe filtrar por tipo de evento.
+    // Sin esta regla recursiva Firestore rechaza la consulta incluso si cada
+    // documento de songs/*/voteEvents permite lectura individual.
+    match /{path=**}/voteEvents/{eventId} {
+      allow read: if resource.data.kind == 'vote_event';
+      allow write: if false;
+    }
+
     // ============ 8. voteEvents — Evento anidado bajo la canción ============
     // La ruta aporta songId de forma estática a las reglas. El evento solo puede
     // crearse en la misma transacción que actualiza el usuario y la canción.
