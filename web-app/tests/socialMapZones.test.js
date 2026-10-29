@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AVATAR_CLEARANCE, MAP_ZONES, MAX_ZONE_SLOTS, ROOM_MAP, SLOT_SPACING, getZonePosition, isSafeZonePoint } from '../src/map/zones.js';
+import { AVATAR_CLEARANCE, MAP_ZONES, MAX_ZONE_SLOTS, ROOM_MAP, SLOT_SPACING, getZoneAtPoint, getZonePosition, isSafeZonePoint } from '../src/map/zones.js';
+
+test('taps select the nearest area on the bar floor, not the street', () => {
+  for (const zone of MAP_ZONES) assert.equal(getZoneAtPoint(zone.anchor[0], zone.anchor[2]), zone.id);
+  assert.equal(getZoneAtPoint(0, -8), null);
+  assert.equal(getZoneAtPoint(50, 50), null);
+  assert.equal(getZoneAtPoint(NaN, 1), null);
+});
 
 test('all eight avatar slots in every social zone stay on walkable floor and clear of solid footprints', () => {
   for (const zone of MAP_ZONES) {

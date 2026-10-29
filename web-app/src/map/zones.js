@@ -29,6 +29,17 @@ const solidFootprints = mapData.objects.filter(object => object.solid && object.
 const floorsByName = new Map(mapData.floorRegions.map(region => [region.name, region]));
 const zoneSlots = new Map(MAP_ZONES.map(zone => [zone.id, findZoneSlots(zone)]));
 
+// Tapping the floor selects the nearest named area on that floor. Furniture is
+// deliberately included: touching the pool table should select the pool area.
+export function getZoneAtPoint(x, z) {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  const candidates = MAP_ZONES.filter(zone => {
+    const floor = floorsByName.get(ZONE_FLOORS[zone.id]);
+    return floor && x >= floor.minX && x <= floor.maxX && z >= floor.minZ && z <= floor.maxZ;
+  });
+  return candidates.sort((a, b) => Math.hypot(x - a.anchor[0], z - a.anchor[2]) - Math.hypot(x - b.anchor[0], z - b.anchor[2]))[0]?.id || null;
+}
+
 export function getZonePosition(zoneId, offset = 0) {
   const slot = Math.trunc(offset);
   if (!Number.isFinite(slot) || slot < 0 || slot >= MAX_ZONE_SLOTS) return null;

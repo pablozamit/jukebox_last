@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, ChevronDown, Compass, MapPin, Shirt, Users, X } from 'lucide-react';
+import { Bell, ChevronDown, MapPin, Shirt, Users, X } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { SOCIAL_ZONES } from '../../shared/socialCatalog.mjs';
 import { db } from './firebase';
@@ -170,6 +170,11 @@ function SocialMapPanelSession({ userId, isRegistered, userData, catalog = [], l
     closeExpanded();
     requestAnimationFrame(() => requestAnimationFrame(() => onRegister()));
   };
+  const selectMapZone = zone => {
+    if (busy || (isVisible && profile?.zone === zone)) return;
+    if (!isRegistered) { registerFromPanel(); return; }
+    setPresenceZone(zone);
+  };
   const handlePanelKeyDown = event => {
     if (!expanded) return;
     if (event.key === 'Escape' && !favoriteOpen && !wardrobeOpen && !selectedCard) {
@@ -210,10 +215,8 @@ function SocialMapPanelSession({ userId, isRegistered, userData, catalog = [], l
 
       <div className="social-presence-controls">
         <div className={`social-presence-main ${isVisible ? 'is-visible' : 'is-hidden'}`}>
-        {isVisible ? <label className="social-zone-select"><Compass size={16} /><span>{t.chooseZone}</span><select aria-label={t.chooseZone} value={profile.zone || 'entrance'} disabled={busy} onChange={event => setPresenceZone(event.target.value)}>{SOCIAL_ZONES.map(zone => <option key={zone.id} value={zone.id}>{SOCIAL_ZONE_TEXT[zone.id]?.[language] || zone.label[language]}</option>)}</select></label> : <div className="social-appear-controls">
-          <label className="social-zone-select"><Compass size={16} /><span>{t.chooseZone}</span><select aria-label={t.chooseZone} defaultValue="terrace" id={`social-zone-${userId || 'guest'}`}>{SOCIAL_ZONES.map(zone => <option key={zone.id} value={zone.id}>{SOCIAL_ZONE_TEXT[zone.id]?.[language] || zone.label[language]}</option>)}</select></label>
-          {isRegistered ? <button type="button" className="social-primary-button" disabled={busy} onClick={() => setPresenceZone(document.getElementById(`social-zone-${userId || 'guest'}`)?.value || 'terrace')}>{t.show}</button> : <button type="button" className="social-primary-button" onClick={registerFromPanel}>{t.registerButton}</button>}
-        </div>}
+        <div className="social-map-location" role="status"><MapPin size={16} aria-hidden="true" /><span>{isVisible ? `${language === 'en' ? 'You are in' : 'Estás en'} ${SOCIAL_ZONE_TEXT[profile?.zone]?.[language] || ''}` : (language === 'en' ? 'Tap the map to appear' : 'Toca el mapa para aparecer')}</span></div>
+        {!isRegistered && <button type="button" className="social-primary-button" onClick={registerFromPanel}>{t.registerButton}</button>}
         {isVisible && <button type="button" className="social-control-button" onClick={hidePresence} disabled={busy}><MapPin size={15} />{t.hide}</button>}
         </div>
         {isRegistered && <div className="social-own-actions"><div className="social-own-group"><button type="button" className="social-avatar-entry" onClick={() => setWardrobeOpen(true)}><SocialAvatar equipped={currentEquipped} size={34} /><span>{t.wardrobe}</span><Shirt size={15} /></button>{isVisible && <button type="button" className="social-text-button" onClick={() => openCard(userId)}>{t.ownCard}</button>}</div><button type="button" className="social-text-button social-favorite-entry" onClick={() => setFavoriteOpen(true)}><span aria-hidden="true">♫</span>{favoriteSong?.title || t.favoritePicker}</button></div>}
@@ -221,10 +224,11 @@ function SocialMapPanelSession({ userId, isRegistered, userData, catalog = [], l
       </div>
 
       <div className="social-view-tabs" aria-label={language === 'en' ? 'Social map view' : 'Vista del mapa social'}><button type="button" aria-pressed={peopleTab === 'map'} aria-controls="social-map-panel-content" onClick={() => setPeopleTab('map')}>{t.scene}</button><button type="button" aria-pressed={peopleTab === 'people'} aria-controls="social-map-panel-content" onClick={() => setPeopleTab('people')}>{t.list} <b>{publicPeople.length}</b></button></div>
-      {peopleTab === 'map' && <p className="social-map-help">{language === 'en' ? 'Touch: drag to rotate; use two fingers to pan and pinch to zoom. Mouse: drag to rotate, scroll to zoom, right-drag to pan.' : 'Táctil: arrastra para girar; usa dos dedos para desplazar y pellizca para acercar o alejar. Ratón: arrastra para girar, usa la rueda para acercar y arrastra con el botón derecho para desplazar.'}</p>}
+      {peopleTab === 'map' && <p className="social-map-help">{language === 'en' ? 'Tap an area to appear or move there. Drag to rotate; pinch to zoom. Tap a person to see their card.' : 'Toca una zona para aparecer o moverte allí. Arrastra para girar y pellizca para acercar. Toca una persona para ver su ficha.'}</p>}
       <div className="social-map-content" id="social-map-panel-content" role="region" aria-label={peopleTab === 'map' ? t.scene : t.list} tabIndex={peopleTab === 'people' ? 0 : undefined}>
-        {peopleTab === 'map' ? <Suspense fallback={<div className="social-map-loading" role="status">{t.loading}</div>}><SocialMapScene people={mapPeople} onSelect={openCard} focusZone={null} lang={language} labels={{ scene: t.scene, mapFallback: t.mapFallback, empty: t.empty, terrace: SOCIAL_ZONE_TEXT.terrace[language], bar: SOCIAL_ZONE_TEXT.bar[language], pool: SOCIAL_ZONE_TEXT.pool[language], foosball: SOCIAL_ZONE_TEXT.foosball[language] }} /></Suspense> : <SocialPeopleList people={publicPeople} lang={language} onSelect={openCard} emptyText={t.empty} />}
+        {peopleTab === 'map' ? <Suspense fallback={<div className="social-map-loading" role="status">{t.loading}</div>}><SocialMapScene people={mapPeople} onSelect={openCard} onSelectZone={selectMapZone} focusZone={null} lang={language} labels={{ scene: t.scene, mapFallback: t.mapFallback, empty: t.empty, terrace: SOCIAL_ZONE_TEXT.terrace[language], bar: SOCIAL_ZONE_TEXT.bar[language], pool: SOCIAL_ZONE_TEXT.pool[language], foosball: SOCIAL_ZONE_TEXT.foosball[language] }} /></Suspense> : <SocialPeopleList people={publicPeople} lang={language} onSelect={openCard} emptyText={t.empty} />}
       </div>
+      <details className="social-zone-access"><summary>{language === 'en' ? 'Choose a location with buttons' : 'Elegir zona con botones'}</summary><div>{SOCIAL_ZONES.map(zone => <button type="button" key={zone.id} disabled={busy} aria-pressed={isVisible && profile?.zone === zone.id} onClick={() => selectMapZone(zone.id)}>{SOCIAL_ZONE_TEXT[zone.id]?.[language] || zone.label[language]}</button>)}</div></details>
       {cardLoading && selectedCardIsCurrent && <div className="social-card-loading" role="status">{language === 'en' ? 'Opening DJ card…' : 'Abriendo la ficha…'}</div>}
       {selectedCard && selectedCardIsCurrent && <DjCard card={selectedCard} lang={language} isOwn={selectedUid === userId} onClose={closeCard} onInvite={sendInvite} onBlock={blockPerson} onUnblock={unblockPerson} onWardrobe={() => { closeCard(); setWardrobeOpen(true); }} />}
       {wardrobeOpen && <AvatarWardrobe profile={profile} inventory={inventory} points={points} lang={language} onClose={() => setWardrobeOpen(false)} onEquip={equipItem} onBuy={buyItem} />}

@@ -131,6 +131,12 @@
 .social-blocked-toggle { margin-top: 4px; color: rgba(218,159,139,.68); }.social-blocked-list { padding: 0 7px 5px; border-top: 1px solid rgba(200,162,88,.1); }.social-blocked-list > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 30px; border-bottom: 1px solid rgba(200,162,88,.07); color: var(--social-muted); font-size: 10px; }.social-blocked-list button { border: 0; background: transparent; color: #dcaa96; font-size: 10px; cursor: pointer; }
 .social-block-button { margin-top: 8px; color: rgba(218,159,139,.72); }
 .social-presence-main { display: flex; align-items: center; gap: 10px; }
+.social-map-location { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 10px; color: #f4e1ba; font-size: 12px; font-weight: 700; border: 1px solid rgba(200,162,88,.25); background: rgba(200,162,88,.08); }
+.social-zone-access { flex: none; margin-top: 8px; color: var(--social-muted); font-size: 11px; }
+.social-zone-access summary { cursor: pointer; padding: 6px 0; text-decoration: underline; text-underline-offset: 3px; }
+.social-zone-access > div { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 8px; }
+.social-zone-access button { min-height: 38px; padding: 6px 10px; border: 1px solid var(--social-border); color: var(--social-ink); background: rgba(200,162,88,.08); }
+.social-zone-access button[aria-pressed="true"] { border-color: #e7bd6e; background: rgba(200,162,88,.25); }
 .social-presence-main .social-appear-controls { flex: 1; min-width: 0; }
 .social-presence-main .social-zone-select { min-height: 40px; padding: 0 10px; border: 1px solid rgba(200,162,88,.17); background: rgba(8,7,6,.24); color: rgba(244,236,217,.76); }
 .social-presence-main .social-zone-select select { max-width: 230px; border-color: rgba(200,162,88,.3); background-color: #211a13; font-size: 12px; }

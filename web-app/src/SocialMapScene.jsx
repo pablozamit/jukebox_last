@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import SocialPeopleList from './SocialPeopleList';
 import { createAvatar } from './map/createAvatar';
-import { getZonePosition, ROOM_MAP } from './map/zones';
+import { getZoneAtPoint, getZonePosition, MAP_ZONES, ROOM_MAP } from './map/zones';
 import { getCameraFov, getCameraPose } from './map/camera';
 
-export default function SocialMapScene({ people, onSelect, focusZone = null, labels, lang }) {
+export default function SocialMapScene({ people, onSelect, onSelectZone, focusZone = null, labels, lang }) {
   const hostRef = useRef(null);
   const peopleRef = useRef(people);
   const onSelectRef = useRef(onSelect);
+  const onSelectZoneRef = useRef(onSelectZone);
   const focusZoneRef = useRef(focusZone);
   const sceneContextRef = useRef(null);
   const avatarGroupsRef = useRef([]);
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
 
-  useEffect(() => { peopleRef.current = people; onSelectRef.current = onSelect; }, [people, onSelect]);
+  useEffect(() => { peopleRef.current = people; onSelectRef.current = onSelect; onSelectZoneRef.current = onSelectZone; }, [people, onSelect, onSelectZone]);
 
   useEffect(() => {
     focusZoneRef.current = focusZone;
@@ -36,6 +37,7 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
     let cameraTransition = null;
     let cameraTarget;
     const avatarGroups = avatarGroupsRef.current;
+    const zoneLabels = [];
     let raycaster;
     let camera;
     let scene;
@@ -112,6 +114,14 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
             }
           });
           scene.add(modelRoot);
+          for (const zone of MAP_ZONES) {
+            const marker = createNameTag(THREE, zone.label[lang === 'en' ? 'en' : 'es']);
+            marker.scale.multiplyScalar(0.48);
+            marker.position.set(zone.anchor[0], 0.6, zone.anchor[2]);
+            marker.userData.zoneId = zone.id;
+            zoneLabels.push(marker);
+            scene.add(marker);
+          }
           updateSocialMarkers(THREE, scene, peopleRef.current, avatarGroups);
           sceneContextRef.current = { THREE, scene, renderer, camera, requestRender, focusCamera };
           resize();
@@ -120,11 +130,13 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
 
         raycaster = new THREE.Raycaster();
         const pointer = new THREE.Vector2();
+        const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const floorPoint = new THREE.Vector3();
         let pointerGesture = null;
         const handleClick = event => {
           const gesture = pointerGesture;
           pointerGesture = null;
-          if (gesture?.moved) return;
+          if (!gesture || gesture.moved) return;
           const rect = canvas.getBoundingClientRect();
           pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
           pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -132,7 +144,13 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
           const hit = raycaster.intersectObjects(avatarGroups, true)[0]?.object;
           let node = hit;
           while (node && !node.userData.uid) node = node.parent;
-          if (node?.userData.uid) onSelectRef.current(node.userData.uid);
+          if (node?.userData.uid) { onSelectRef.current(node.userData.uid); return; }
+          const label = raycaster.intersectObjects(zoneLabels, false)[0]?.object;
+          if (label?.userData.zoneId) { onSelectZoneRef.current(label.userData.zoneId); return; }
+          if (raycaster.ray.intersectPlane(floorPlane, floorPoint)) {
+            const zone = getZoneAtPoint(floorPoint.x, floorPoint.z);
+            if (zone) onSelectZoneRef.current(zone);
+          }
         };
         const handlePointerMove = event => {
           if (pointerGesture && pointerGesture.pointerId === event.pointerId
@@ -142,7 +160,7 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
           const rect = canvas.getBoundingClientRect();
           pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
           raycaster.setFromCamera(pointer, camera);
-          canvas.style.cursor = raycaster.intersectObjects(avatarGroups, true).length ? 'pointer' : 'grab';
+          canvas.style.cursor = raycaster.intersectObjects(avatarGroups, true).length || raycaster.intersectObjects(zoneLabels, false).length || (raycaster.ray.intersectPlane(floorPlane, floorPoint) && getZoneAtPoint(floorPoint.x, floorPoint.z)) ? 'pointer' : 'grab';
         };
         const handlePointerDown = event => {
           if (!event.isPrimary) {
@@ -210,7 +228,7 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
       camera.updateProjectionMatrix();
       if (controls) controls.maxDistance = Math.max(44, getCameraPose(null, camera.aspect, camera.fov).distance + 12, camera.position.distanceTo(cameraTarget) + 2);
       if (!cameraInitialized) {
-        focusCamera(focusZoneRef.current || 'bar', true);
+        focusCamera(focusZoneRef.current, true);
         cameraInitialized = true;
       }
       requestRender();
@@ -270,10 +288,11 @@ export default function SocialMapScene({ people, onSelect, focusZone = null, lab
       sceneContextRef.current = null;
       avatarGroups.forEach(disposeObject);
       avatarGroups.length = 0;
+      zoneLabels.forEach(label => { scene?.remove(label); disposeObject(label); });
       if (modelRoot) { scene.remove(modelRoot); disposeObject(modelRoot); }
       if (renderer) { renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); }
     };
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
