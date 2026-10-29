@@ -15,6 +15,22 @@ body {
   @apply bg-zinc-950 text-white font-sans antialiased;
 }
 
+.dj-invitation { position: relative; margin-top: 14px; padding: 16px; overflow: hidden; color: #f7ead1; border: 1px solid rgba(213,174,97,.42); border-radius: 12px; background: linear-gradient(125deg,#302319,#191511 75%); box-shadow: 0 8px 24px rgba(0,0,0,.15); }
+.dj-invitation::after { content: '♫'; position: absolute; right: 12px; top: -24px; font-size: 110px; line-height: 1; color: rgba(221,180,95,.07); pointer-events: none; }
+.dj-invitation-heading { display: flex; align-items: center; gap: 10px; position: relative; }
+.dj-invitation-heading > span { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #b9934f; border-radius: 50%; color: #e8c77d; font-size: 20px; }
+.dj-invitation-eyebrow { display: block; color: #d3ad65; font-size: 9px; font-weight: 800; letter-spacing: .18em; }
+.dj-invitation h2 { font-family: Georgia,serif; font-size: 20px; line-height: 1.2; font-weight: 700; }
+.dj-invitation p { margin: 9px 0; font-size: 12px; color: #e5d6b9; }
+.dj-invitation-benefits { display: flex; flex-wrap: wrap; gap: 6px; position: relative; }
+.dj-invitation-benefits span { padding: 4px 8px; font-size: 11px; color: #f5e3b9; border: 1px solid rgba(222,185,112,.24); border-radius: 20px; background: rgba(245,219,163,.06); }
+.dj-invitation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 12px; position: relative; }
+.dj-invitation-actions button:first-child { min-height: 42px; padding: 8px 14px; border-radius: 5px; background: #e1bc74; color: #24190d; font-size: 13px; font-weight: 800; }
+.dj-invitation-actions button:last-child { min-height: 42px; color: #f0dfbd; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.dj-invitation-actions button:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+.profile-map-entry { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 48px; padding: 10px 14px; color: #f5e3b9; background: #34291c; border: 1px solid #987b44; border-radius: 8px; font-size: 13px; font-weight: 700; text-align: left; }
+.profile-map-entry:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+
 :root {
   --catrina-gold: #b58a3a;
   --catrina-gold-dark: #8b6622;

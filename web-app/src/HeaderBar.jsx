@@ -1,4 +1,4 @@
-import { BarChart3, Loader2, LogIn, Trophy } from 'lucide-react';
+import { BarChart3, Loader2, LogIn, UserRound } from 'lucide-react';
 
 export default function HeaderBar({
   isRegistered,
@@ -19,8 +19,8 @@ export default function HeaderBar({
           className={`shrink-0 flex flex-col items-center justify-center gap-0.5 px-1.5 sm:px-2 transition-colors ${isRegistered ? 'text-brand-gold' : isCatrina ? 'text-brand-gold/60 hover:text-brand-gold' : 'text-white/70 hover:text-brand-neon-purple'}`}
           title={isRegistered ? t.profileTitle : t.loginShort}
         >
-          {isRegistered ? <Trophy size={22} /> : <LogIn size={22} />}
-          <span className={`text-[9px] font-bold uppercase tracking-wider hidden min-[380px]:block`}>
+          {isRegistered ? <UserRound size={22} /> : <LogIn size={22} />}
+          <span className="text-[9px] font-bold uppercase tracking-wider">
             {isRegistered ? t.profileShort : t.loginShort}
           </span>
         </button>

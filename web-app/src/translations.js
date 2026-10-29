@@ -58,8 +58,25 @@ export const translations = {
       {
         title: "Recupera tu token",
         text: "Cuando tu canción termine de sonar, recuperarás tu token para volver a votar."
+      },
+      {
+        title: "Tu perfil DJ",
+        text: "Crea tu cuenta para tener 6 propuestas y 10 votos, un nombre de DJ, puntos y logros. Entra en Perfil para ver tu progreso."
+      },
+      {
+        title: "Explora La Catrina",
+        text: "Abre el mapa para explorar el bar. Con tu cuenta puedes personalizar tu muñeco, elegir dónde aparecer y conocer a otros clientes."
+      },
+      {
+        title: "Trivia musical",
+        text: "Si tienes cuenta, busca el regalo y responde la trivia para conseguir propuestas y votos extra."
       }
     ],
+    djInvitationEyebrow: "TU PASE DE DJ",
+    djInvitationTitle: "Tu música. Tu sitio.",
+    djInvitationText: "Crea tu perfil y vive La Catrina a tu manera.",
+    djProposals: "propuestas", djVotes: "votos", djAvatar: "Tu muñeco y mapa", djAchievements: "Tus logros",
+    djCreateAccount: "Crear mi cuenta", djAlreadyAccount: "Ya tengo cuenta · Entrar",
     next: "Siguiente",
     finish: "Entendido",
     nowPlayingBtn: "Sonando",
@@ -112,9 +129,9 @@ export const translations = {
       "6 propuestas de canciones (en vez de 3)",
       "10 votos en la cola (en vez de 5)",
       "Gana puntos, sube de nivel y desbloquea logros",
-      "Aparece en el Top DJs de la semana",
+      "Personaliza tu muñeco y elige si aparecer en el mapa",
+      "Participa en la trivia musical para conseguir bonos",
       "Canjea 50 puntos por votos gratis",
-      "Tus datos son privados: sin spam ni publicidad"
     ],
     registerSuccess: "¡Bienvenido, DJ! Ahora tienes el doble de capacidad.",
     registerDjName: "Nombre de DJ",
@@ -122,7 +139,8 @@ export const translations = {
     djNameEmpty: "Elige un nombre de DJ para continuar.",
 
     // Temas de diseño
-    profileShort: "Perfil",
+    profileShort: "Mi perfil",
+    profileMapEntry: "Ver mi muñeco y aparecer en el mapa",
     themeClassic: "Modo Clásico",
     themeNeon: "Modo Nuevo",
     themeSwitchedClassic: "Modo Clásico activado",
@@ -335,8 +353,25 @@ export const translations = {
       {
         title: "Get your token back",
         text: "Once your song finishes playing, you'll get your token back to vote again."
+      },
+      {
+        title: "Your DJ profile",
+        text: "Create an account for 6 proposals and 10 votes, a DJ name, points and achievements. Open Profile to see your progress."
+      },
+      {
+        title: "Explore La Catrina",
+        text: "Open the map to explore the bar. With an account you can customize your avatar, choose where to appear and meet other guests."
+      },
+      {
+        title: "Music trivia",
+        text: "With an account, find the gift and answer the music trivia to earn extra proposals and votes."
       }
     ],
+    djInvitationEyebrow: "YOUR DJ PASS",
+    djInvitationTitle: "Your music. Your place.",
+    djInvitationText: "Create your profile and make La Catrina yours.",
+    djProposals: "proposals", djVotes: "votes", djAvatar: "Your avatar & map", djAchievements: "Your achievements",
+    djCreateAccount: "Create my account", djAlreadyAccount: "Have an account? Sign in",
     next: "Next",
     finish: "Got it",
     nowPlayingBtn: "Playing",
@@ -389,9 +424,9 @@ export const translations = {
       "6 song proposals (instead of 3)",
       "10 votes in the queue (instead of 5)",
       "Earn points, level up and unlock achievements",
-      "Appear on the weekly Top DJs leaderboard",
+      "Customize your avatar and choose whether to appear on the map",
+      "Play music trivia to earn bonuses",
       "Exchange 50 points for free votes",
-      "Your data is private: no spam or ads"
     ],
     registerSuccess: "Welcome, DJ! You now have double capacity.",
     registerDjName: "DJ name",
@@ -399,7 +434,8 @@ export const translations = {
     djNameEmpty: "Pick a DJ name to continue.",
 
     // Design themes
-    profileShort: "Profile",
+    profileShort: "My profile",
+    profileMapEntry: "See my avatar and appear on the map",
     themeClassic: "Classic Mode",
     themeNeon: "New Mode",
     themeSwitchedClassic: "Classic mode enabled",

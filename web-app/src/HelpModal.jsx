@@ -32,7 +32,7 @@ export default function HelpModal({ isCatrina, mainTextClass, helpStep, setHelpS
           </div>
 
           <div className="flex gap-2 justify-center">
-            {[0, 1, 2, 3].map((s) => (
+            {t.helpSteps.map((_, s) => (
               <div
                 key={s}
                 className="jukebox-help-dot"
@@ -51,12 +51,12 @@ export default function HelpModal({ isCatrina, mainTextClass, helpStep, setHelpS
 
           <button
             onClick={() => {
-              if (helpStep < 3) setHelpStep(helpStep + 1);
+              if (helpStep < t.helpSteps.length - 1) setHelpStep(helpStep + 1);
               else onClose();
             }}
             className={`w-full font-bold py-4 transition-all ${isCatrina ? 'jukebox-btn-primary rounded-sm' : 'bg-brand-gold text-zinc-950 rounded-2xl hover:scale-[1.02] active:scale-95'}`}
           >
-            {helpStep < 3 ? t.next : t.finish}
+            {helpStep < t.helpSteps.length - 1 ? t.next : t.finish}
           </button>
         </div>
       </div>

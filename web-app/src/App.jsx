@@ -453,6 +453,12 @@ export default function App() {
           {lang === 'en' ? 'Search or suggest a song' : 'Busca o propone una canción'}
           <ArrowUp size={15} className="rotate-45" aria-hidden="true" />
         </a>
+        {!isRegistered && <section className="dj-invitation" aria-labelledby="dj-invitation-title">
+          <div className="dj-invitation-heading"><span aria-hidden="true">✦</span><div><span className="dj-invitation-eyebrow">{t.djInvitationEyebrow}</span><h2 id="dj-invitation-title">{t.djInvitationTitle}</h2></div></div>
+          <p>{t.djInvitationText}</p>
+          <div className="dj-invitation-benefits"><span>♫ <strong>6</strong> {t.djProposals}</span><span>♥ <strong>10</strong> {t.djVotes}</span><span>✦ {SOCIAL_MAP_ENABLED ? t.djAvatar : t.djAchievements}</span></div>
+          <div className="dj-invitation-actions"><button type="button" onClick={() => { setAuthMode('register'); setShowRegister(true); }}>{t.djCreateAccount} <span aria-hidden="true">→</span></button><button type="button" onClick={() => { setAuthMode('login'); setShowLogin(true); }}>{t.djAlreadyAccount}</button></div>
+        </section>}
       </div>
 
       {/* ===== MAIN ===== */}
@@ -703,6 +709,7 @@ export default function App() {
             t={t}
             activeQueue={activeQueue}
             onClose={() => setShowProfile(false)}
+            onOpenMap={() => { setShowProfile(false); requestAnimationFrame(() => document.querySelector('.social-collapsed-main')?.click()); }}
             onLogout={async () => {
               if (SOCIAL_MAP_ENABLED && isRegistered) {
                 try {

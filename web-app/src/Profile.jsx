@@ -35,7 +35,7 @@ function formatSocialDate(value, language) {
   return new Intl.DateTimeFormat(language, { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
 }
 
-export default function Profile({ userData, userId, t, onClose, onLogout, activeQueue }) {
+export default function Profile({ userData, userId, t, onClose, onLogout, activeQueue, onOpenMap }) {
   const { theme } = useTheme();
   const isCatrina = theme === 'catrina';
   const [historyFilter, setHistoryFilter] = useState('all');
@@ -173,6 +173,7 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
         </button>
       </header>
       <main className="profile-main flex-1 overflow-y-auto p-6 space-y-8">
+        {SOCIAL_MAP_ENABLED && <button type="button" onClick={onOpenMap} className="profile-map-entry">✦ <span>{t.profileMapEntry}</span> <span aria-hidden="true">→</span></button>}
         <div className="profile-hero relative overflow-hidden border rounded-2xl p-6 text-center space-y-4">
           {isCatrina && <>
             <CornerFlourish position="tl" size={34} />
