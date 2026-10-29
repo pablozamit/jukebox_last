@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { updateDoc, doc, increment } from 'firebase/firestore';
+import { useEffect, useState } from 'react';
+import { updateDoc, doc, increment, onSnapshot } from 'firebase/firestore';
 import { X, Gift, Trophy, Music, Calendar, TrendingUp, Star } from 'lucide-react';
-import { db } from './firebase';
+import { db, SOCIAL_MAP_ENABLED } from './firebase';
 import { useTheme } from './ThemeContext';
 import { CornerFlourish } from './Ornaments';
 
@@ -28,6 +28,13 @@ function getLevelName(min, t) {
   return t.levelNovato;
 }
 
+function formatSocialDate(value, language) {
+  if (!value) return '';
+  const date = typeof value?.toDate === 'function' ? value.toDate() : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(language, { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+}
+
 export default function Profile({ userData, userId, t, onClose, onLogout, activeQueue }) {
   const { theme } = useTheme();
   const isCatrina = theme === 'catrina';
@@ -37,6 +44,14 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
   const [djNameDraft, setDjNameDraft] = useState(userData?.djName || '');
   const [editingDjName, setEditingDjName] = useState(false);
   const [djMsg, setDjMsg] = useState('');
+  const [socialStatsState, setSocialStatsState] = useState({ userId: null, data: null, loaded: false });
+
+  useEffect(() => {
+    if (!SOCIAL_MAP_ENABLED || !userId) return undefined;
+    return onSnapshot(doc(db, 'socialStats', userId), snapshot => {
+      setSocialStatsState({ userId, data: snapshot.exists() ? snapshot.data() : null, loaded: true });
+    }, () => setSocialStatsState({ userId, data: null, loaded: true }));
+  }, [userId]);
 
   if (!userData) return null;
 
@@ -44,10 +59,12 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
   const currentPoints = userData.points || 0;
   const freeVotes = userData.freeVotes || 0;
   const freeProposals = userData.freeProposals || 0;
-  const achievements = userData.achievements || [];
   const history = userData.history || [];
   const visitDates = userData.visitDates || [];
   const isRegistered = userData.isRegistered || false;
+  const socialStats = SOCIAL_MAP_ENABLED && socialStatsState.userId === userId ? socialStatsState.data : null;
+  const socialStatsLoaded = SOCIAL_MAP_ENABLED && socialStatsState.userId === userId && socialStatsState.loaded;
+  const achievements = [...new Set([...(userData.achievements || []), ...Object.keys(socialStats?.achievementGrants || {})])];
 
   const currentLevel = LEVELS.find(l => totalEarned >= l.min && totalEarned <= l.max) || LEVELS[0];
   const nextLevel = LEVELS.find(l => l.min > totalEarned);
@@ -58,9 +75,13 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
 
   const totalVotesCast = (userData.votes || []).length;
   const totalProposalsMade = (userData.proposals || []).length;
-  const playedSongs = history.filter(h => h.status === 'played').length;
-  const successRate = totalProposalsMade > 0 ? Math.round((playedSongs / totalProposalsMade) * 100) : 0;
   const nightsVisited = visitDates.length;
+  const statsLoading = SOCIAL_MAP_ENABLED && !socialStatsLoaded;
+  const displayedVotes = SOCIAL_MAP_ENABLED ? (statsLoading ? '…' : socialStats?.uniqueVotes ?? '—') : totalVotesCast;
+  const displayedProposals = SOCIAL_MAP_ENABLED ? (statsLoading ? '…' : socialStats?.uniqueProposals ?? '—') : totalProposalsMade;
+  const displayedPlayed = SOCIAL_MAP_ENABLED ? (statsLoading ? '…' : socialStats?.proposalsPlayed ?? '—') : '—';
+  const displayedNights = SOCIAL_MAP_ENABLED ? (statsLoading ? '…' : socialStats?.participationNights ?? '—') : nightsVisited;
+  const language = t?.profileTitle === 'My DJ Profile' ? 'en-GB' : 'es-ES';
 
   const allAchievements = [
     { id: 'first_vote', title: t.achievementFirstVote, desc: t.achievementFirstVoteDesc },
@@ -90,12 +111,21 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
     }
     prevVisit = d;
   });
-  const achievementProgress = {
+  const legacyAchievementProgress = {
     first_vote: { cur: Math.min((userData.votes || []).length, 1), target: 1 },
     influencer: { cur: Math.min(maxProposalVotes, 10), target: 10 },
     loyal: { cur: Math.min(visitDates.length, 4), target: 4 },
     streak: { cur: Math.min(nightStreak, 2), target: 2 },
   };
+  const achievementProgress = SOCIAL_MAP_ENABLED
+    ? (socialStatsLoaded && socialStats ? {
+      first_vote: { cur: Math.min(Number(socialStats.uniqueVotes) || 0, 1), target: 1 },
+      protagonist: { cur: Math.min(Number(socialStats.proposalsPlayed) || 0, 1), target: 1 },
+      influencer: { cur: Math.min(maxProposalVotes, 10), target: 10 },
+      loyal: { cur: Math.min(Number(socialStats.participationNights) || 0, 4), target: 4 },
+      streak: { cur: Math.min(Number(socialStats.votingStreak) || 0, 2), target: 2 },
+    } : {})
+    : legacyAchievementProgress;
 
   const handleExchange = async () => {
     if (currentPoints < EXCHANGE_COST) { setExchangeMsg(t.notEnoughPoints); return; }
@@ -240,30 +270,32 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
           <div className="grid grid-cols-2 gap-3">
             <div className="profile-stat-card rounded-xl p-4 text-center">
               <Music size={20} className="profile-icon profile-icon-gold mx-auto mb-1" />
-              <p className="profile-stat-value text-2xl font-bold">{totalVotesCast}</p>
-              <p className="profile-stat-label text-xs">{t.totalVotesCast}</p>
+              <p className="profile-stat-value text-2xl font-bold">{displayedVotes}</p>
+              <p className="profile-stat-label text-xs">{SOCIAL_MAP_ENABLED ? t.uniqueVotes : t.activeVotes}</p>
             </div>
             <div className="profile-stat-card rounded-xl p-4 text-center">
               <Star size={20} className="profile-icon profile-icon-purple mx-auto mb-1" />
-              <p className="profile-stat-value text-2xl font-bold">{totalProposalsMade}</p>
-              <p className="profile-stat-label text-xs">{t.totalProposalsMade}</p>
+              <p className="profile-stat-value text-2xl font-bold">{displayedProposals}</p>
+              <p className="profile-stat-label text-xs">{SOCIAL_MAP_ENABLED ? t.uniqueProposals : t.activeProposals}</p>
             </div>
             <div className="profile-stat-card rounded-xl p-4 text-center">
               <TrendingUp size={20} className="profile-icon profile-icon-green mx-auto mb-1" />
-              <p className="profile-stat-value text-2xl font-bold">{successRate}%</p>
-              <p className="profile-stat-label text-xs">{t.successRate}</p>
+              <p className="profile-stat-value text-2xl font-bold">{displayedPlayed}</p>
+              <p className="profile-stat-label text-xs">{SOCIAL_MAP_ENABLED ? t.proposalsPlayed : t.successRate}</p>
             </div>
             <div className="profile-stat-card rounded-xl p-4 text-center">
               <Calendar size={20} className="profile-icon profile-icon-gold mx-auto mb-1" />
-              <p className="profile-stat-value text-2xl font-bold">{nightsVisited}</p>
-              <p className="profile-stat-label text-xs">{t.nightsVisited}</p>
+              <p className="profile-stat-value text-2xl font-bold">{displayedNights}</p>
+              <p className="profile-stat-label text-xs">{SOCIAL_MAP_ENABLED ? t.participationNights : t.nightsVisited}</p>
             </div>
           </div>
+          {SOCIAL_MAP_ENABLED && <p className="profile-muted text-xs text-center">{statsLoading ? t.socialStatsLoading : socialStats?.trackingStartedAt ? `${t.trackingSince}: ${formatSocialDate(socialStats.trackingStartedAt, language)}` : t.socialStatsUnavailable}</p>}
         </div>
 
         <div className="space-y-4">
           <h3 className="profile-section-title font-bold uppercase tracking-wider text-sm flex items-center gap-2">
             <Trophy size={16} />{t.achievementsTitle}
+            <span className="ml-auto profile-muted text-xs normal-case tracking-normal">{achievements.filter(id => allAchievements.some(ach => ach.id === id)).length}/{allAchievements.length}</span>
           </h3>
           <div className="grid grid-cols-2 gap-2">
             {allAchievements.map((ach) => {
@@ -289,6 +321,7 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
                         />
                       </div>
                       <p className="text-[9px] mt-1 opacity-60">{achievementProgress[ach.id].cur}/{achievementProgress[ach.id].target}</p>
+                      {ach.id === 'influencer' && <p className="profile-achievement-desc text-[10px] mt-1">{t.achievementQueueProgress}</p>}
                     </div>
                   )}
                 </div>

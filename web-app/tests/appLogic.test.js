@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isSongPlaying, nextTriviaWindow, resolveSongId } from '../src/appLogic.js';
+import { isSongPlaying, nextTriviaWindow, resolveSongId, timestampMillis, tokenLimits } from '../src/appLogic.js';
+
+test('token limits include earned bonuses for guests and registered users', () => {
+  assert.deepEqual(tokenLimits(), { proposals: 3, votes: 5 });
+  assert.deepEqual(tokenLimits({ isRegistered: true, freeProposals: 1, freeVotes: 3 }), { proposals: 7, votes: 13 });
+  assert.deepEqual(tokenLimits({ freeProposals: 2, freeVotes: 1 }), { proposals: 5, votes: 6 });
+  assert.deepEqual(tokenLimits({ freeProposals: '2', freeVotes: -1 }), { proposals: 3, votes: 5 });
+});
 
 test('resolveSongId prefers the bridge songId', () => {
   const songs = [{ id: 'file.mp4', title: 'Same title' }];
@@ -23,4 +30,12 @@ test('nextTriviaWindow returns the next half-hour boundary', () => {
   const windowMs = 30 * 60 * 1000;
   assert.equal(nextTriviaWindow(1, windowMs), windowMs);
   assert.equal(nextTriviaWindow(windowMs, windowMs), windowMs * 2);
+});
+
+test('trivia accepts numeric persisted times and legacy Timestamp without a render exception', () => {
+  assert.equal(timestampMillis(1792250000000), 1792250000000);
+  assert.equal(timestampMillis({ toMillis: () => 1792250000000 }), 1792250000000);
+  for (const bad of [null, undefined, NaN, Infinity, -1, '123', {}, { toMillis: () => { throw new Error('bad data'); } }]) {
+    assert.equal(timestampMillis(bad), 0);
+  }
 });

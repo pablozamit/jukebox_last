@@ -1,0 +1,21 @@
+.social-avatar .social-avatar-head { background: var(--avatar-skin, #c98f68); }
+.social-avatar-hair-bob { top: 15%; left: 30%; width: 40%; height: 38%; border-radius: 48% 48% 28% 28%; box-shadow: -4px 9px 0 -1px var(--avatar-hair), 4px 9px 0 -1px var(--avatar-hair); }
+.social-avatar .social-avatar-hair-bob, .social-avatar .social-avatar-hair-mid { z-index: 1; }
+.social-avatar-hair-ponytail { top: 16%; left: 33%; width: 34%; height: 21%; border-radius: 50%; box-shadow: 5px 7px 0 -1px var(--avatar-hair); }
+.social-avatar-hair-bun { top: 13%; left: 39%; width: 22%; height: 19%; border-radius: 50%; box-shadow: 0 0 0 3px var(--avatar-hair); }
+.social-avatar-hair-mohawk { top: 11%; left: 44%; width: 12%; height: 27%; border-radius: 45% 45% 15% 15%; }
+.social-avatar-head.social-avatar-face-freckles b { position:absolute; top:61%; left:28%; width:3px; height:2px; border-radius:50%; background:#80513d; box-shadow:3px 1px #80513d, 6px 0 #80513d, 10px 1px #80513d; }
+.social-avatar-head.social-avatar-face-moustache b { position:absolute; top:67%; left:38%; width:27%; height:10%; border-radius:30% 30% 60% 60%; background:#493125; }
+.social-avatar .social-avatar-body { --shirt-detail: transparent; }
+.social-avatar-body:after { content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; }
+.social-avatar .social-avatar-body.social-avatar-top-stripe:after { background:repeating-linear-gradient(to bottom,transparent 0 17%,rgba(255,235,204,.88) 18% 22%,transparent 23% 34%); }
+.social-avatar .social-avatar-body.social-avatar-top-jacket:after { background:linear-gradient(90deg,rgba(240,222,190,.38) 0 3%,transparent 4% 46%,rgba(240,222,190,.75) 48% 51%,transparent 53% 96%,rgba(240,222,190,.38) 97%); }
+.social-avatar .social-avatar-body.social-avatar-top-hoodie:after { inset:-2% 15% auto; height:25%; border:2px solid rgba(230,220,205,.55); border-bottom:0; border-radius:50% 50% 0 0; }
+.social-avatar .social-avatar-body.social-avatar-top-star:after { content:"★"; top:20%; left:39%; width:22%; height:27%; color:#e6c36d; font-size:calc(var(--avatar-size) * .16); line-height:1; text-align:center; }
+.social-avatar-bottom-shorts .social-avatar-leg { height:9%; }
+.social-avatar-bottom-skirt .social-avatar-leg { display:none; }
+.social-avatar-skirt { position:absolute; z-index:2; top:72%; left:36%; width:28%; height:14%; border-radius:0 0 30% 30%; clip-path:polygon(12% 0,88% 0,100% 100%,0 100%); background:var(--avatar-bottom); }
+.social-avatar-accessory-earrings { top:42%; left:28%; width:7%; height:11%; border:2px solid var(--accessory-color); border-radius:50%; background:transparent; box-shadow:calc(var(--avatar-size) * .27) 0 0 -1px transparent,calc(var(--avatar-size) * .27) 0 0 0 var(--accessory-color); }
+.social-avatar-accessory-scarf { top:48%; left:27%; width:46%; height:12%; border-radius:40%; }
+.social-avatar-accessory-scarf:after { content:""; position:absolute; right:17%; top:60%; width:20%; height:100%; background:var(--accessory-color); transform:rotate(-10deg); }
+.social-avatar-hair-none + .social-avatar-head { box-shadow: 0 -1px 0 rgba(90,50,35,.1); }

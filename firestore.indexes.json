@@ -1,0 +1,26 @@
+{
+  "indexes": [
+    { "collectionGroup": "songs", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "votes", "order": "DESCENDING" }, { "fieldPath": "firstVotedAt", "order": "ASCENDING" }
+    ] },
+    { "collectionGroup": "socialSongPeaks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "sessionId", "order": "ASCENDING" }, { "fieldPath": "peakVotes", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "socialInvitations", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "senderId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "socialInvitations", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "recipientId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "socialInvitations", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "senderId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }
+    ] },
+    { "collectionGroup": "socialInvitations", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "recipientId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }
+    ] },
+    { "collectionGroup": "socialInvitations", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "expiresAt", "order": "ASCENDING" }
+    ] }
+  ],
+  "fieldOverrides": []
+}
