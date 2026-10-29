@@ -945,6 +945,12 @@ body {
 .profile-icon-green { color: #39ff14; }
 .profile-achievement-unlocked { background: rgba(204,165,63,0.1); border-color: rgba(204,165,63,0.3); }
 .profile-achievement-locked { background: #18181b; border-color: #27272a; }
+.queue-night-goal { padding: 10px 16px; color: #e7d6aa; background: rgba(181,138,58,.09); }
+.queue-night-goal > div:first-child { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.queue-night-goal small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; margin-top: 4px; }
+.queue-night-goal-track { height: 5px; background: rgba(255,255,255,.15); border-radius: 5px; margin-top: 6px; overflow: hidden; }
+.queue-night-goal-track span { display: block; height: 100%; background: #d8b25e; transition: width .35s ease; }
+@media (prefers-reduced-motion: reduce) { .queue-night-goal-track span { transition: none; } }
 .profile-achievement-title { color: #d4d4d8; }
 .profile-achievement-desc { color: #a1a1aa; }
 .profile-achievement-title.profile-unlocked-text { color: #cca53f; }

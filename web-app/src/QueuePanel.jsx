@@ -25,6 +25,9 @@ export default function QueuePanel({
   voteCountRefs,
   t,
 }) {
+  const leader = queueSongs.find(song => song.id === topSongId);
+  const leaderVotes = Math.max(0, Number(leader?.votes) || 0);
+  const goalProgress = Math.min(leaderVotes, 10);
   return (
     <div className={`jukebox-queue ${isCatrina ? 'relative' : ''}`}>
       {isCatrina && (
@@ -49,6 +52,11 @@ export default function QueuePanel({
           {isQueueCollapsed ? <ChevronDown size={14} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} /> : <ChevronUp size={14} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} />}
         </div>
       </div>
+      {leader && <div className="queue-night-goal" role="status">
+        <div><strong>{leaderVotes >= 10 ? t.nightGoalDone : t.nightGoal}</strong><span>{goalProgress}/10</span></div>
+        <div className="queue-night-goal-track" role="progressbar" aria-label={t.nightGoal} aria-valuemin={0} aria-valuemax={10} aria-valuenow={goalProgress}><span style={{ width: `${goalProgress * 10}%` }} /></div>
+        <small>{leader.title}</small>
+      </div>}
       {!isQueueCollapsed && (
         <div className={`max-h-[35vh] overflow-y-auto custom-scrollbar ${isCatrina ? 'divide-y divide-white/[0.03]' : 'divide-y divide-zinc-800/50'}`}>
           {queueSongs.map((song) => {

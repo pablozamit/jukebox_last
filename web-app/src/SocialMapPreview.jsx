@@ -3,8 +3,9 @@ const ROOM_NAMES = {
   en: { terrace: 'TERRACE', entrance: 'ENTRANCE', tables: 'TABLES', foosball: 'FOOSBALL', pool: 'POOL', bar: 'BAR' },
 };
 
-export default function SocialMapPreview({ lang = 'es' }) {
+export default function SocialMapPreview({ lang = 'es', ownZone = null }) {
   const rooms = ROOM_NAMES[lang === 'en' ? 'en' : 'es'];
+  const ownPoint = { terrace: [142, 115], entrance: [215, 123], tables: [558, 105], foosball: [284, 102], pool: [370, 88], bar: [465, 114] }[ownZone];
   return <svg className="social-map-preview" viewBox="0 0 640 184" role="img" aria-hidden="true" focusable="false">
     <defs>
       <linearGradient id="social-map-floor" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#524334" /><stop offset="1" stopColor="#29221c" /></linearGradient>
@@ -69,6 +70,11 @@ export default function SocialMapPreview({ lang = 'es' }) {
         <circle cx="453" cy="99" r="3" /><circle cx="475" cy="99" r="3" />
       </g>
       <text className="social-map-room-title" x="447" y="125">{rooms.bar}</text>
+      {ownPoint && <g className="social-preview-own-marker" transform={`translate(${ownPoint[0]} ${ownPoint[1]})`}>
+        <circle r="9" fill="#d8b25e" stroke="#fff4d1" strokeWidth="2" />
+        <circle cy="-2" r="3" fill="#30251c" />
+        <path d="M-5 5c0-5 10-5 10 0" fill="#30251c" />
+      </g>}
     </g>
   </svg>;
 }

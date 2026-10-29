@@ -133,7 +133,6 @@ function SocialMapPanelSession({ userId, isRegistered, userData, catalog = [], l
 
   const setPresenceZone = zone => withBusy(async () => {
     await show(zone);
-    await refresh();
     setMessage('');
   });
   const hidePresence = () => withBusy(async () => { await hide(); closeCard(); setMessage(''); });
@@ -148,7 +147,7 @@ function SocialMapPanelSession({ userId, isRegistered, userData, catalog = [], l
   const muteInvites = value => withBusy(() => act('preferences', { muteInvites: value }));
   const blockPerson = uid => withBusy(async () => { await act('block', { uid }); closeCard(); });
   const unblockPerson = uid => withBusy(() => act('unblock', { uid }));
-  const equipItem = itemId => withBusy(async () => { await act('equip', { itemId }); await refresh(); }, true);
+  const equipItem = itemId => withBusy(() => act('equip', { itemId }), true);
   const buyItem = itemId => withBusy(async () => {
     const result = await act('buy', { itemId, requestId: makeRequestId() });
     if (Number.isFinite(result?.points)) setPointsOverride({ base: userData?.points, value: result.points });
@@ -194,7 +193,7 @@ function SocialMapPanelSession({ userId, isRegistered, userData, catalog = [], l
     {!expanded ? <div className="social-collapsed-row">
       <button ref={collapsedButtonRef} type="button" className="social-collapsed-main" onClick={() => setExpanded(true)} aria-label={`${t.open}. ${count} ${visiblePeopleLabel}${pendingInvitations ? `. ${pendingInvitations} ${t.invitations}` : ''}`} aria-expanded="false" aria-controls="social-map-panel-content">
         <span className="social-collapsed-heading"><span className="social-title-copy"><strong>{t.title}</strong><small><span className="social-live-glyph" aria-hidden="true"><span /></span>{count} {visiblePeopleLabel}</small></span><span className="social-preview-cta">{pendingInvitations > 0 && <span className="social-preview-invites"><Bell size={13} aria-hidden="true" />{pendingInvitations}</span>}<span className="social-collapsed-cta"><MapPin size={15} aria-hidden="true" /><span>{language === 'en' ? 'Explore map' : 'Explorar mapa'}</span><ChevronDown size={14} aria-hidden="true" /></span></span></span>
-        <SocialMapPreview lang={language} />
+        <SocialMapPreview lang={language} ownZone={isVisible ? profile?.zone : null} />
       </button>
     </div> : <>
       <header className="social-panel-header">
