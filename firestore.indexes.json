@@ -22,5 +22,12 @@
       { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "expiresAt", "order": "ASCENDING" }
     ] }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    { "collectionGroup": "voteEvents", "fieldPath": "kind", "indexes": [
+      { "queryScope": "COLLECTION", "order": "ASCENDING" },
+      { "queryScope": "COLLECTION", "order": "DESCENDING" },
+      { "queryScope": "COLLECTION", "arrayConfig": "CONTAINS" },
+      { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" }
+    ] }
+  ]
 }
