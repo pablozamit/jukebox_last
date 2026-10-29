@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { leaseEnd, moveBucket, initialSocial, allowedLegacy, unknownLegacy, assertCatalogItem, requireAuth, level } from '../src/core.mjs';
+import { leaseEnd, moveBucket, sameBuckets, initialSocial, allowedLegacy, unknownLegacy, assertCatalogItem, requireAuth, level } from '../src/core.mjs';
 import { eventId, eventValid, votingStreak, madridHour } from '../src/events.mjs';
 
 test('presence expiry is minute boundary plus two minutes; bucket transitions stay exact', () => {
@@ -9,6 +9,12 @@ test('presence expiry is minute boundary plus two minutes; bucket transitions st
   const old = { visible: true, expiresAt }, next = { visible: true, expiresAt: expiresAt + 60_000 };
   assert.deepEqual(moveBucket({ buckets: { [expiresAt]: 1 } }, old, next, now), { [expiresAt + 60_000]: 1 });
   assert.deepEqual(moveBucket({ buckets: { [expiresAt]: 1 } }, old, null, expiresAt), {});
+});
+
+test('bucket comparison detects real count changes regardless of key order', () => {
+  assert.equal(sameBuckets({ 100: 1, 200: 2 }, { 200: 2, 100: 1 }), true);
+  assert.equal(sameBuckets({ 100: 1 }, { 100: 2 }), false);
+  assert.equal(sameBuckets({ 100: 1 }, {}), false);
 });
 
 test('legacy grants are bounded to known IDs and starter inventory has a default outfit', () => {

@@ -65,13 +65,6 @@ export function useSocialPresence({ userId, isRegistered, expanded, getServerTim
       setSocialNow(getServerTime());
       setSummary(snapshot.data()?.buckets || {});
     }, () => setStale(true)));
-    if (expanded) {
-      unsubscribers.push(onSnapshot(collection(db, 'rooms', 'catrina', 'presence'), snapshot => {
-        setSocialNow(getServerTime());
-        setPresence(snapshot.docs.map(item => ({ uid: item.id, ...item.data() })));
-        setStale(false);
-      }, () => setStale(true)));
-    }
     if (isRegistered) unsubscribers.push(onSnapshot(collection(db, 'socialUsers', userId, 'blocks'), snapshot => setBlockState({ userId, ids: snapshot.docs.map(item => item.id) }), () => setStale(true)));
     const outgoing = query(collection(db, 'socialInvitations'), where('senderId', '==', userId), orderBy('createdAt', 'desc'), limit(25));
     const incoming = query(collection(db, 'socialInvitations'), where('recipientId', '==', userId), orderBy('createdAt', 'desc'), limit(25));
@@ -83,7 +76,22 @@ export function useSocialPresence({ userId, isRegistered, expanded, getServerTim
     unsubscribers.push(onSnapshot(outgoing, snapshot => { inviteRows.outgoing = snapshot.docs.map(item => ({ id: item.id, ...item.data() })); publish(); }, () => setStale(true)));
     unsubscribers.push(onSnapshot(incoming, snapshot => { inviteRows.incoming = snapshot.docs.map(item => ({ id: item.id, ...item.data() })); publish(); }, () => setStale(true)));
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
-  }, [userId, expanded, isRegistered, getServerTime]);
+  }, [userId, isRegistered, getServerTime]);
+
+  useEffect(() => {
+    if (!userId) return undefined;
+    if (!expanded && (!isRegistered || !profile?.visible)) return undefined;
+    const source = expanded
+      ? collection(db, 'rooms', 'catrina', 'presence')
+      : doc(db, 'rooms', 'catrina', 'presence', userId);
+    return onSnapshot(source, snapshot => {
+      setSocialNow(getServerTime());
+      setPresence(expanded
+        ? snapshot.docs.map(item => ({ uid: item.id, ...item.data() }))
+        : snapshot.exists() ? [{ uid: snapshot.id, ...snapshot.data() }] : []);
+      setStale(false);
+    }, () => setStale(true));
+  }, [userId, expanded, isRegistered, profile?.visible, getServerTime]);
 
   const nextExpiry = useMemo(() => nextSocialExpiry({ summary, presence, invitations, expanded, now: socialNow }), [summary, presence, invitations, expanded, socialNow]);
   useEffect(() => {

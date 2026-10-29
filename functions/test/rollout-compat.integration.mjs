@@ -25,6 +25,7 @@ before(async () => {
   const rules = {
     old: execFileSync('git', ['show', `${baselineRevision}:firestore.rules`], { cwd: root, encoding: 'utf8' }),
     compat: await fs.readFile(new URL('../../firestore.compat.rules', import.meta.url), 'utf8'),
+    rollout: await fs.readFile(new URL('../../firestore.rollout-approved.rules', import.meta.url), 'utf8'),
     strict: await fs.readFile(new URL('../../firestore.rules', import.meta.url), 'utf8'),
   };
   for (const [lane, source] of Object.entries(rules)) {
@@ -192,6 +193,34 @@ test('compat enforces proposal and vote capacity for both protocols', async () =
       await assert.rejects(participate(user, songId, protocol), denied);
       assert.equal((await getDoc(doc(user.db, 'users', user.uid))).data()[key].length, limit);
     }
+  }
+});
+
+test('earned bonuses extend capacity and arbitrary direct increases are rejected', async () => {
+  for (const lane of ['compat', 'rollout', 'strict']) {
+    const user = await createUser(lane);
+    const ref = doc(user.db, 'users', user.uid);
+    await seed(lane, `users/${user.uid}`, {
+      isRegistered: true, proposals: Array.from({ length: 6 }, (_, n) => `prop-${n}`),
+      votes: Array.from({ length: 10 }, (_, n) => `vote-${n}`), points: 50,
+    });
+    const prefix = `bonus-${lane}`;
+    await seed(lane, `songs/${prefix}-vote`, { title: 'Synthetic rollout song', votes: 1 });
+    await assert.rejects(participate(user, `${prefix}-vote`, 'new'), denied);
+    await assert.rejects(updateDoc(ref, { freeVotes: 99 }), denied);
+    await updateDoc(ref, { points: 0, freeVotes: 1 });
+    await participate(user, `${prefix}-vote`, 'new');
+    await seed(lane, `songs/${prefix}-extra`, { title: 'Synthetic rollout song', votes: 1 });
+    await assert.rejects(participate(user, `${prefix}-extra`, 'new'), denied);
+    await assert.rejects(participate(user, `${prefix}-proposal`, 'new'), denied);
+    await updateDoc(ref, { freeProposals: 1, freeVotes: 3, lastTriviaAt: Date.now() });
+    await participate(user, `${prefix}-proposal`, 'new');
+    await assert.rejects(participate(user, `${prefix}-proposal-2`, 'new'), denied);
+    await participate(user, `${prefix}-extra`, 'new');
+    const profile = (await getDoc(ref)).data();
+    assert.equal(profile.points, 0);
+    assert.equal(profile.freeProposals, 1);
+    assert.equal(profile.freeVotes, 3);
   }
 });
 

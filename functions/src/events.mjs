@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { active, ACTIVITY_MS, CATALOG_BY_ID, refs, ROOM } from './core.mjs';
+import { active, ACTIVITY_MS, CATALOG_BY_ID, refs, ROOM, sameBuckets } from './core.mjs';
 
 export const eventId = e => createHash('sha256').update(JSON.stringify(
   e.kind === 'play' ? [e.kind, e.playbackId, e.uid] : [e.kind, e.uid, e.songId, e.sessionId]
@@ -94,9 +94,10 @@ export async function processEvent(db, eventDocId, e, now = Date.now()) {
 
 export async function reconcilePresence(db, now = Date.now()) {
   const room = db.doc(`rooms/${ROOM}`), col = db.collection(`rooms/${ROOM}/presence`);
-  const snapshots = await col.get();
-  const expired = snapshots.docs.filter(s => !active(s.data(), now));
-  for (const doc of expired) await db.runTransaction(async tx => {
+  // Active leases do not need the preliminary read; they are read once below
+  // when building an exact, transactionally protected room summary.
+  const expired = await col.where('expiresAt', '<=', now).get();
+  for (const doc of expired.docs) await db.runTransaction(async tx => {
     const social = db.doc(`socialUsers/${doc.id}`);
     const [s, profile] = await Promise.all([tx.get(doc.ref), tx.get(social)]);
     if (s.exists && !active(s.data(), now)) {
@@ -104,8 +105,8 @@ export async function reconcilePresence(db, now = Date.now()) {
       if (profile.exists && profile.data().version === s.data().version) tx.update(social, { visible: false, zone: null, version: randomUUID() });
     }
   });
-  // Every presence writer also writes the room. Reading it first ensures a
-  // concurrent renewal retries this reconciliation rather than losing a count.
+  // Renewals that change a bucket also write the room. Reading it first ensures
+  // a concurrent bucket change retries this reconciliation rather than losing a count.
   return db.runTransaction(async tx => {
     const roomS = await tx.get(room);
     const live = await tx.get(col);
@@ -114,8 +115,8 @@ export async function reconcilePresence(db, now = Date.now()) {
       const key = String(doc.data().expiresAt);
       buckets[key] = (buckets[key] || 0) + 1;
     }
-    if (roomS.exists) tx.update(room, { buckets, updatedAt: now, reconciledAt: now });
-    else tx.set(room, { buckets, updatedAt: now, reconciledAt: now });
+    if (!roomS.exists) tx.set(room, { buckets, updatedAt: now, reconciledAt: now });
+    else if (!sameBuckets(roomS.data()?.buckets || {}, buckets)) tx.update(room, { buckets, updatedAt: now, reconciledAt: now });
     return buckets;
   });
 }

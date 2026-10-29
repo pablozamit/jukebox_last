@@ -944,10 +944,10 @@ body {
 .profile-icon-purple { color: #b026ff; }
 .profile-icon-green { color: #39ff14; }
 .profile-achievement-unlocked { background: rgba(204,165,63,0.1); border-color: rgba(204,165,63,0.3); }
-.profile-achievement-locked { background: #18181b; border-color: #27272a; opacity: 0.4; }
-.profile-unlocked-text { color: #cca53f; }
-.profile-achievement-title { color: #52525b; }
-.profile-achievement-desc { color: #52525b; }
+.profile-achievement-locked { background: #18181b; border-color: #27272a; }
+.profile-achievement-title { color: #d4d4d8; }
+.profile-achievement-desc { color: #a1a1aa; }
+.profile-achievement-title.profile-unlocked-text { color: #cca53f; }
 .profile-filter-active { background: #cca53f; color: #09090b; }
 .profile-filter-inactive { background: #18181b; color: #71717a; }
 .profile-filter-inactive:hover { color: #d4d4d8; }
@@ -997,9 +997,9 @@ body {
 [data-theme="catrina"] .profile-exchange-disabled { background: #1a1a1a; color: rgba(255,255,255,0.12); }
 [data-theme="catrina"] .profile-achievement-unlocked { background: rgba(181,138,58,0.1); border-color: rgba(181,138,58,0.3); }
 [data-theme="catrina"] .profile-achievement-locked { background: #141210; border-color: rgba(255,255,255,0.06); }
-[data-theme="catrina"] .profile-unlocked-text { color: var(--catrina-gold); }
-[data-theme="catrina"] .profile-achievement-title,
-[data-theme="catrina"] .profile-achievement-desc { color: rgba(245,236,215,0.35); }
+[data-theme="catrina"] .profile-achievement-title { color: rgba(245,236,215,0.85); }
+[data-theme="catrina"] .profile-achievement-desc { color: rgba(245,236,215,0.65); }
+[data-theme="catrina"] .profile-achievement-title.profile-unlocked-text { color: var(--catrina-gold); }
 [data-theme="catrina"] .profile-filter-active { background: var(--catrina-gold); color: #0d0d0d; border-radius: 2px; }
 [data-theme="catrina"] .profile-filter-inactive { background: #141210; color: rgba(245,236,215,0.35); border-radius: 2px; }
 [data-theme="catrina"] .profile-filter-inactive:hover { color: rgba(245,236,215,0.7); }

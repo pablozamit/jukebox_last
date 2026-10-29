@@ -3,6 +3,7 @@ import { collection, doc, getDocFromServer, increment, runTransaction, serverTim
 import { db, SOCIAL_MAP_ENABLED, IS_LOCAL_DEMO } from './firebase';
 import { translations } from './translations';
 import { withProposalRaceRetry } from './queueTransaction.mjs';
+import { tokenLimits } from './appLogic.js';
 import { useTheme } from './ThemeContext';
 import { useToast } from './Toast';
 import { TextureOverlay, OrnamentalDivider } from './Ornaments';
@@ -30,10 +31,6 @@ import { useDesignSurvey } from './hooks/useDesignSurvey';
 import { useNotifications } from './hooks/useNotifications';
 import {
   CATALOG_PAGE_SIZE,
-  GUEST_MAX_PROPOSALS,
-  REGISTERED_MAX_PROPOSALS,
-  GUEST_MAX_VOTES,
-  REGISTERED_MAX_VOTES,
 } from './constants';
 
 const Profile = lazy(() => import('./Profile'));
@@ -193,8 +190,7 @@ export default function App() {
       .catch((error) => toast(t.firebaseError + error.message, 'error'));
   };
 
-  const MAX_PROPOSALS = (isRegistered ? REGISTERED_MAX_PROPOSALS : GUEST_MAX_PROPOSALS) + (userData?.freeProposals || 0);
-  const MAX_VOTES = (isRegistered ? REGISTERED_MAX_VOTES : GUEST_MAX_VOTES) + (userData?.freeVotes || 0);
+  const { proposals: MAX_PROPOSALS, votes: MAX_VOTES } = tokenLimits({ ...userData, isRegistered });
 
   const handleRemoveAction = async (songId) => {
     if (!userId) return;
@@ -269,7 +265,6 @@ export default function App() {
         const currentUser = userSnap.exists() ? userSnap.data() : {};
         const currentProposals = currentUser.proposals || [];
         const currentVotes = currentUser.votes || [];
-        const userIsRegistered = currentUser.isRegistered || false;
         const effectiveIsProposal = !songSnap.exists();
         voteWasProposal = effectiveIsProposal;
         const alreadyApplied = effectiveIsProposal
@@ -279,8 +274,7 @@ export default function App() {
           return { status: 'noop', votes: songSnap.exists() ? songSnap.data().votes : 0 };
         }
 
-        const actualMaxProposals = userIsRegistered ? REGISTERED_MAX_PROPOSALS : GUEST_MAX_PROPOSALS;
-        const actualMaxVotes = userIsRegistered ? REGISTERED_MAX_VOTES : GUEST_MAX_VOTES;
+        const { proposals: actualMaxProposals, votes: actualMaxVotes } = tokenLimits(currentUser);
 
         let finalProposals = [...currentProposals];
         let finalVotes = [...currentVotes];

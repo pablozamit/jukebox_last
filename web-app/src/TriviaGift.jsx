@@ -6,11 +6,9 @@ import { useTheme } from './ThemeContext';
 import { useToast } from './Toast';
 import { triviaQuestions } from './triviaQuestions';
 import { timestampMillis } from './appLogic';
+import { triviaPresentation } from './triviaState';
 
 const WINDOW_MS = 30 * 60 * 1000;       // Cada media hora hay una ronda
-// La bolita está visible toda la media hora; desaparece al jugar hasta la siguiente ronda.
-// (Reducir este valor, p.ej. a 10*60*1000, haría que solo apareciera 10 min por ronda.)
-const GIFT_VISIBLE_MS = WINDOW_MS;
 const QUESTION_TIME = 15;               // Segundos para responder
 const OPTION_LETTERS = ['A', 'B', 'C', 'D'];
 const OPTION_COLORS = ['red', 'blue', 'yellow', 'green'];
@@ -30,27 +28,25 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
   const [showModal, setShowModal] = useState(false);
   const [question, setQuestion] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [phase, setPhase] = useState('idle'); // idle | playing | revealed
+  const [phase, setPhase] = useState('idle'); // idle | playing | submitting | revealed
   const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
   const [won, setWon] = useState(false);
-  // Respuesta local por ronda, claveada por ventana (sin refs durante el render)
-  const [answeredRound, setAnsweredRound] = useState({ windowId: -1, done: false });
+  // El cooldown es móvil: una respuesta bloquea 30 minutos, incluso al cambiar de ventana.
+  const [answeredAt, setAnsweredAt] = useState(0);
   const [deadline, setDeadline] = useState(0);
 
   const closeTimerRef = useRef(null);
   const roundConsumedRef = useRef(false);
 
-  const windowId = Math.floor(now / WINDOW_MS);
-  const timeInWindow = now % WINDOW_MS;
-  const giftVisible = timeInWindow < GIFT_VISIBLE_MS;
-  const answeredThisWindow = (answeredRound.windowId === windowId && answeredRound.done)
-    || (timestampMillis(lastTriviaAt) > 0 && (now - timestampMillis(lastTriviaAt)) < WINDOW_MS);
+  const { showGift, showDialog, answered: answeredThisWindow } = triviaPresentation({
+    userId, isRegistered, showModal, now, answeredAt, lastTriviaAt, windowMs: WINDOW_MS,
+  });
 
   // Reloj interno para saber cuándo aparece/desaparece la bolita
   useEffect(() => {
     const timer = window.setInterval(() => setNow(getServerTime()), 5000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [getServerTime]);
 
   // Limpieza del cierre programado al desmontar
   useEffect(() => () => { if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current); }, []);
@@ -64,7 +60,7 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
   }, []);
 
   const openTrivia = () => {
-    if (!giftVisible || answeredThisWindow) return;
+    if (!showGift || answeredThisWindow) return;
     if (!userId) return;
     if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
     pickQuestion();
@@ -73,22 +69,26 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
     setTimeLeft(QUESTION_TIME);
     setWon(false);
     roundConsumedRef.current = false;
-        setDeadline(getServerTime() + QUESTION_TIME * 1000);
+    setDeadline(getServerTime() + QUESTION_TIME * 1000);
     setShowModal(true);
   };
 
   const finishRound = useCallback((correct, correctArtist) => {
     if (roundConsumedRef.current) return;
     roundConsumedRef.current = true;
-    setPhase('revealed');
+    setPhase('submitting');
     const triviaTimestamp = Math.round(getServerTime());
     const userRef = doc(db, 'users', userId);
     runTransaction(db, async (transaction) => {
       const userSnap = await transaction.get(userRef);
       if (!userSnap.exists()) throw new Error('missing-user');
       const current = userSnap.data();
-      const previous = Number(current.lastTriviaAt || 0);
-      if (triviaTimestamp - previous < WINDOW_MS) throw new Error('trivia-already-used');
+      const previous = timestampMillis(current.lastTriviaAt);
+      if (triviaTimestamp - previous < WINDOW_MS) {
+        const error = new Error('trivia-already-used');
+        error.lastTriviaAt = previous;
+        throw error;
+      }
       transaction.update(userRef, correct
         ? {
             freeProposals: Number(current.freeProposals || 0) + 1,
@@ -97,7 +97,8 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
           }
         : { lastTriviaAt: triviaTimestamp });
     }).then(() => {
-      setAnsweredRound({ windowId: Math.floor(Date.now() / WINDOW_MS), done: true });
+      setAnsweredAt(triviaTimestamp);
+      setPhase('revealed');
       if (correct) {
         setWon(true);
         toast(t.triviaWin, 'success', 4500);
@@ -109,8 +110,8 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
       // Solo consumimos la oportunidad localmente cuando el servidor confirmó
       // el resultado (o confirmó que ya se había usado en otra pestaña).
       if (error.message === 'trivia-already-used') {
-        setAnsweredRound({ windowId: Math.floor(Date.now() / WINDOW_MS), done: true });
-        closeTimerRef.current = window.setTimeout(() => setShowModal(false), 2600);
+        setAnsweredAt(error.lastTriviaAt || triviaTimestamp);
+        setShowModal(false);
         toast(t.triviaAlreadyPlayed || t.firebaseError, 'info');
       } else {
         // La red puede fallar sin que se haya consumido la ronda. Permitir
@@ -119,11 +120,11 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
         setSelected(null);
         setPhase('playing');
         setTimeLeft(QUESTION_TIME);
-    setDeadline(getServerTime() + QUESTION_TIME * 1000);
+        setDeadline(getServerTime() + QUESTION_TIME * 1000);
         toast(t.firebaseError, 'error');
       }
     });
-  }, [userId, t, toast]);
+  }, [userId, t, toast, getServerTime]);
 
   const closeModal = () => {
     if (phase === 'playing' && question) {
@@ -151,15 +152,15 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
       }
     }, 250);
     return () => window.clearInterval(timer);
-  }, [showModal, phase, deadline, question, finishRound]);
+  }, [showModal, phase, deadline, question, finishRound, getServerTime]);
 
   // La trivia (votos + puntos extra) es un incentivo exclusivo para usuarios registrados.
   // Los invitados pueden votar y proponer normalmente, pero no reciben el regalo.
-  if (!userId || !isRegistered || !giftVisible || answeredThisWindow) return null;
+  if (!showGift && !showDialog) return null;
 
   return (
     <>
-      <button
+      {showGift && <button
         type="button"
         onClick={openTrivia}
         className="trivia-gift"
@@ -169,9 +170,9 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
         <span className="trivia-gift-ring" />
         <span className="trivia-gift-box"><span>🎁</span></span>
         <span className="trivia-gift-label">+1 🎵 · +2 🗳️</span>
-      </button>
+      </button>}
 
-      {showModal && question && (
+      {showDialog && question && (
         <div className="trivia-overlay" onClick={closeModal}>
           <div
             className={`trivia-modal ${isCatrina ? 'trivia-modal-catrina' : ''}`}
@@ -183,7 +184,7 @@ export default function TriviaGift({ userId, t, lastTriviaAt, isRegistered, getS
             <div className="trivia-head">
               <span className="trivia-badge">🎁 {t.triviaGiftTitle}</span>
               <span className="trivia-timer">{timeLeft}s</span>
-              <button type="button" onClick={closeModal} className="trivia-close" aria-label={t.next}>
+              <button type="button" onClick={closeModal} className="trivia-close" aria-label={t.triviaClose}>
                 <X size={18} />
               </button>
             </div>

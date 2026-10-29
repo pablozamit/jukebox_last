@@ -146,13 +146,16 @@ service cloud.firestore {
 
     // ============ 4. users — Cada usuario solo lee/escribe SU propio documento ============
     match /users/{userId} {
-      // Max limits for proposals (3 for guest, 6 for registered)
+      // Earned bonuses add persistent concurrent slots; they are not consumed.
       function maxProposals(userDoc) {
-        return userDoc.get('isRegistered', false) ? 6 : 3;
+        let bonus = userDoc.get('freeProposals', 0);
+        return (userDoc.get('isRegistered', false) ? 6 : 3)
+          + (bonus is int && bonus >= 0 ? bonus : 0);
       }
-      // Max limits for votes (5 for guest, 10 for registered)
       function maxVotes(userDoc) {
-        return userDoc.get('isRegistered', false) ? 10 : 5;
+        let bonus = userDoc.get('freeVotes', 0);
+        return (userDoc.get('isRegistered', false) ? 10 : 5)
+          + (bonus is int && bonus >= 0 ? bonus : 0);
       }
 
       allow read: if request.auth != null && request.auth.uid == userId;

@@ -25,6 +25,11 @@ test('social timer schedules the next count, presence, activity, or invitation d
   assert.equal(nextSocialExpiry({ summary: { '9000': 1 }, now: 10_000 }), null);
 });
 
+test('minimized view still expires its own presence, without scheduling activity', () => {
+  assert.equal(nextSocialExpiry({ now: 10_000, expanded: false, presence: [{ expiresAt: 30_000, activity: { expiresAt: 15_000 } }] }), 30_000);
+  assert.equal(nextSocialExpiry({ now: 30_000, expanded: false, presence: [{ expiresAt: 30_000 }] }), null);
+});
+
 test('expiry delay uses the current clock when snapshots refresh an existing deadline', () => {
   assert.equal(socialExpiryDelay(40_000, 39_000), 1_025);
   assert.equal(socialExpiryDelay(40_000, 40_100), 1);

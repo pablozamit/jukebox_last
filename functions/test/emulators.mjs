@@ -74,6 +74,11 @@ try {
   await assertSucceeds(getDocs(collection(a, `socialUsers/${alice}/inventory`)));
   await assertFails(getDocs(collection(b, `socialUsers/${alice}/inventory`)));
   await assert.rejects(executeAction(db, auth(alice), { action: 'heartbeat', version: 'old' }, now + 1000));
+  const socialBeforeBeat = await db.doc(`socialUsers/${alice}`).get();
+  const roomBeforeBeat = await db.doc('rooms/catrina').get();
+  await executeAction(db, auth(alice), { action: 'heartbeat', version: first.presence.version }, now);
+  assert.equal((await db.doc(`socialUsers/${alice}`).get()).updateTime.toMillis(), socialBeforeBeat.updateTime.toMillis());
+  assert.equal((await db.doc('rooms/catrina').get()).updateTime.toMillis(), roomBeforeBeat.updateTime.toMillis());
   await executeAction(db, auth(alice), { action: 'heartbeat', version: first.presence.version }, now + 1000);
   pass('Presence version and room count stay authoritative');
 
@@ -174,8 +179,10 @@ try {
   await assertExactRoomCount(now + 62000);
   await assert.rejects(executeAction(db, auth(bob), { action: 'heartbeat', version: second.presence.version }, now + 300_000));
   if (process.argv.includes('--isolated')) {
+    await executeAction(db, auth(bob), { action: 'show', zone: 'bar' }, now + 63_000);
     await reconcilePresence(db, now + 300_000);
     assert.deepEqual((await db.doc('rooms/catrina').get()).data().buckets, {});
+    assert.equal((await db.doc(`rooms/catrina/presence/${bob}`).get()).exists, false);
     assert.equal((await db.doc(`socialUsers/${bob}`).get()).data().visible, false);
   }
   pass('Renewed and hidden leases replace old buckets exactly');

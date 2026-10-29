@@ -70,6 +70,7 @@ export default function QueuePanel({
                   <h4 className={`text-sm font-bold truncate ${mainTextClass}`}>
                     {song.title}
                   </h4>
+                  {isTop && <span className={`inline-block text-[10px] font-bold uppercase tracking-wide ${isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'}`}>🏆 {t.queueLeader}</span>}
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <Flame size={12} className={isCatrina ? 'text-brand-gold' : 'text-brand-neon-purple'} />
                     <span

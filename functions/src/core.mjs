@@ -32,6 +32,10 @@ export function moveBucket(room, oldPresence, newPresence, now) {
   }
   return b;
 }
+export function sameBuckets(a = {}, b = {}) {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(key => a[key] === b[key]);
+}
 export function publicName(user) {
   const name = typeof user?.djName === 'string' ? user.djName.trim() : '';
   return name.slice(0, 40) || 'DJ';

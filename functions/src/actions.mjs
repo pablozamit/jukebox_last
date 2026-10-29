@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { active, assert, assertCatalogItem, assertType, assertZone, CATALOG_BY_ID, fail, id, initialSocial, INVITATION_TTL_MS, leaseEnd, level, MAX_OUTGOING, moveBucket, publicName, refs, requestId, requireAuth, SEND_COOLDOWN_MS, STARTER_IDS, unknownLegacy, allowedLegacy, validateActionInput } from './core.mjs';
+import { active, assert, assertCatalogItem, assertType, assertZone, CATALOG_BY_ID, fail, id, initialSocial, INVITATION_TTL_MS, leaseEnd, level, MAX_OUTGOING, moveBucket, sameBuckets, publicName, refs, requestId, requireAuth, SEND_COOLDOWN_MS, STARTER_IDS, unknownLegacy, allowedLegacy, validateActionInput } from './core.mjs';
 
 const value = s => s.exists ? s.data() : null;
 const present = (s, now) => active(value(s), now);
@@ -70,9 +70,11 @@ async function changePresence(db, uid, action, payload, now) {
       ...(action === 'heartbeat' && previous.activity?.expiresAt > now ? { activity: previous.activity } : {}),
     };
     const buckets = moveBucket(value(roomS), previous, next, now);
-    if (roomS.exists) tx.update(r.room, { buckets, updatedAt: now });
-    else tx.set(r.room, { buckets, updatedAt: now });
-    tx.update(r.social, { visible: action !== 'hide', zone: action === 'hide' ? null : next.zone, version });
+    if (!roomS.exists) tx.set(r.room, { buckets, updatedAt: now });
+    else if (!sameBuckets(value(roomS)?.buckets || {}, buckets)) tx.update(r.room, { buckets, updatedAt: now });
+    // A heartbeat only renews the lease. Avoid rewriting an unchanged profile,
+    // which otherwise wakes its listener every minute.
+    if (action !== 'heartbeat') tx.update(r.social, { visible: action !== 'hide', zone: action === 'hide' ? null : next.zone, version });
     if (next) tx.set(r.presence, next);
     else tx.delete(r.presence);
     return { presence: next, invalidatedVersion: social.version };

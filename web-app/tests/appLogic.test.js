@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isSongPlaying, nextTriviaWindow, resolveSongId, timestampMillis } from '../src/appLogic.js';
+import { isSongPlaying, nextTriviaWindow, resolveSongId, timestampMillis, tokenLimits } from '../src/appLogic.js';
+
+test('token limits include earned bonuses for guests and registered users', () => {
+  assert.deepEqual(tokenLimits(), { proposals: 3, votes: 5 });
+  assert.deepEqual(tokenLimits({ isRegistered: true, freeProposals: 1, freeVotes: 3 }), { proposals: 7, votes: 13 });
+  assert.deepEqual(tokenLimits({ freeProposals: 2, freeVotes: 1 }), { proposals: 5, votes: 6 });
+  assert.deepEqual(tokenLimits({ freeProposals: '2', freeVotes: -1 }), { proposals: 3, votes: 5 });
+});
 
 test('resolveSongId prefers the bridge songId', () => {
   const songs = [{ id: 'file.mp4', title: 'Same title' }];

@@ -28,7 +28,7 @@ export function nextSocialExpiry({ summary = {}, presence = [], invitations = []
   const expiries = [
     ...Object.keys(summary).map(value => Number(value)),
     ...invitations.filter(invitation => invitation.status === 'pending').map(invitation => socialTimestampMillis(invitation.expiresAt)),
-    ...(expanded ? presence.flatMap(person => [socialTimestampMillis(person.expiresAt), socialTimestampMillis(person.activity?.expiresAt)]) : []),
+    ...presence.flatMap(person => [socialTimestampMillis(person.expiresAt), ...(expanded ? [socialTimestampMillis(person.activity?.expiresAt)] : [])]),
   ].filter(value => Number.isFinite(value) && value > now);
   return expiries.length ? Math.min(...expiries) : null;
 }

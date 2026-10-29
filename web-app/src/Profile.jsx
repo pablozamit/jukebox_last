@@ -120,6 +120,8 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
   const achievementProgress = SOCIAL_MAP_ENABLED
     ? (socialStatsLoaded && socialStats ? {
       first_vote: { cur: Math.min(Number(socialStats.uniqueVotes) || 0, 1), target: 1 },
+      protagonist: { cur: Math.min(Number(socialStats.proposalsPlayed) || 0, 1), target: 1 },
+      influencer: { cur: Math.min(maxProposalVotes, 10), target: 10 },
       loyal: { cur: Math.min(Number(socialStats.participationNights) || 0, 4), target: 4 },
       streak: { cur: Math.min(Number(socialStats.votingStreak) || 0, 2), target: 2 },
     } : {})
@@ -293,6 +295,7 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
         <div className="space-y-4">
           <h3 className="profile-section-title font-bold uppercase tracking-wider text-sm flex items-center gap-2">
             <Trophy size={16} />{t.achievementsTitle}
+            <span className="ml-auto profile-muted text-xs normal-case tracking-normal">{achievements.filter(id => allAchievements.some(ach => ach.id === id)).length}/{allAchievements.length}</span>
           </h3>
           <div className="grid grid-cols-2 gap-2">
             {allAchievements.map((ach) => {
@@ -318,6 +321,7 @@ export default function Profile({ userData, userId, t, onClose, onLogout, active
                         />
                       </div>
                       <p className="text-[9px] mt-1 opacity-60">{achievementProgress[ach.id].cur}/{achievementProgress[ach.id].target}</p>
+                      {ach.id === 'influencer' && <p className="profile-achievement-desc text-[10px] mt-1">{t.achievementQueueProgress}</p>}
                     </div>
                   )}
                 </div>
