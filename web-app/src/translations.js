@@ -166,7 +166,7 @@ export const translations = {
 
     // Notificaciones en tiempo real
     notifVotedOnYourSong: "🎸 {name} ha votado tu canción '{title}'! ({votes} votos)",
-    notifTokenBack: "🎉 ¡'{title}' ha sonado! Has recuperado tu voto.",
+    notifTokenBack: "Ya tienes disponible el voto o la propuesta que usaste para '{title}'.",
     notifYourSongNext: "🎤 ¡Atención! Tu canción '{title}' va a sonar la siguiente (a no ser que alguien vote más).",
     anonymous: "Anónimo",
     someone: "Alguien",
@@ -468,7 +468,7 @@ export const translations = {
 
     // Real-time notifications
     notifVotedOnYourSong: "🎸 {name} voted for your song '{title}'! ({votes} votes)",
-    notifTokenBack: "🎉 '{title}' just played! You got your vote back.",
+    notifTokenBack: "Your vote or song suggestion for '{title}' is available to use again.",
     notifYourSongNext: "🎤 Heads up! Your song '{title}' is playing next (unless someone outvotes it).",
     anonymous: "Anonymous",
     someone: "Someone",

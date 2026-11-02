@@ -196,7 +196,8 @@ export function useNotifications({
       const manual = lastManualRemoveRef.current;
       if (manual && manual.songId === songId && (now - manual.at < 3000)) return;
       const title = activeQueue[songId]?.title || catalog.find(s => s.id === songId)?.title || songId;
-      toast(t.notifTokenBack.replace('{title}', title), 'success', 4500);
+      // A token may also return after cleanup; disappearance is not playback evidence.
+      toast(t.notifTokenBack.replace('{title}', title), 'info', 4500);
     });
     lastVotesOrProposalsRef.current = { proposals: curProposals, votes: curVotes };
   }, [userData, userId, activeQueue, catalog, t, toast, getServerTime]);
