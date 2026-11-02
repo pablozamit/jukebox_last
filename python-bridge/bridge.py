@@ -1,7 +1,13 @@
-import asyncio, json, os, glob, random, time, logging, uuid, threading, sys, faulthandler
-from logging.handlers import RotatingFileHandler
+import asyncio, json, os, glob, random, time, logging, uuid, threading, sys
 from pathlib import Path
 from datetime import datetime, time as dt_time, timedelta, timezone
+
+BRIDGE_VERSION = "2.4.0-bridge-candidate"
+from bridge_logging import (configure_logging, report_error as _report_error,
+                            asyncio_exception_handler, log_kodi_notification)
+
+logger = configure_logging(Path(__file__).resolve().parent, BRIDGE_VERSION)
+
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -18,7 +24,6 @@ KODI_PASS = os.getenv("KODI_PASS", "kodi")
 VIDEO_FOLDER_PATH = os.getenv("VIDEO_FOLDER_PATH", "C:/Users/lacat/Videos/Videoclips")
 VIDEO_ROOT = Path(VIDEO_FOLDER_PATH).expanduser().resolve()
 FIREBASE_CRED_PATH = os.getenv("FIREBASE_CREDENTIALS_JSON", "./serviceAccountKey.json")
-BRIDGE_VERSION = "2.4.0-bridge-candidate"
 SOCIAL_OUTBOX_PATH = Path(os.getenv(
     "SOCIAL_EVENTS_OUTBOX_PATH",
     str(Path.home() / ".jukebox-social" / "social-events-outbox.json"),
@@ -30,47 +35,11 @@ SETTLEMENT_LOCK = threading.RLock()
 pending_kodi_requests = {}
 active_connection_tasks = set()
 playback_lock = asyncio.Lock()
-logger = logging.getLogger("jukebox-bridge")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("bridge.log", encoding="utf-8")],
-)
-
-# Registro de errores aparte (v2.3.0): bridge_errors.log guarda solo WARNING o
-# superior, con traza completa, rotado (5 x 2 MB) para que no crezca sin limite.
-# Pensado para pegarlo tal cual a quien arregle el puente.
-_err_handler = RotatingFileHandler("bridge_errors.log", maxBytes=2_000_000, backupCount=5, encoding="utf-8")
-_err_handler.setLevel(logging.WARNING)
-_err_handler.setFormatter(logging.Formatter(
-    "%(asctime)s [%(levelname)s] [v" + BRIDGE_VERSION + "] [%(threadName)s] %(message)s"))
-logging.getLogger().addHandler(_err_handler)
-
 def report_error(context, error):
-    logger.exception("%s: %s", context, error)
-
-def _sys_excepthook(exc_type, exc, tb):
-    if issubclass(exc_type, KeyboardInterrupt):
-        sys.__excepthook__(exc_type, exc, tb)
-        return
-    logger.critical("Excepcion no capturada, el puente puede haberse parado", exc_info=(exc_type, exc, tb))
-
-def _thread_excepthook(args):
-    logger.error("Excepcion no capturada en hilo %s", getattr(args.thread, "name", "?"),
-                 exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+    _report_error(logger, context, error)
 
 def _asyncio_exception_handler(loop, context):
-    logger.error("Error asyncio: %s", context.get("message", ""), exc_info=context.get("exception"))
-
-sys.excepthook = _sys_excepthook
-threading.excepthook = _thread_excepthook
-try:
-    # Si el proceso muere de forma brusca (fallo nativo), deja la traza aqui.
-    _fault_file = open("bridge_crash.log", "a", encoding="utf-8")
-    faulthandler.enable(file=_fault_file)
-except Exception:
-    pass
-logger.info("Puente %s arrancando (errores en bridge_errors.log)", BRIDGE_VERSION)
+    asyncio_exception_handler(loop, context)
 
 def flush_social_outbox():
     with SOCIAL_PUBLISH_LOCK:
@@ -389,6 +358,7 @@ async def check_for_new_session():
                 last_reset_dt = None # Forzar el reseteo si es necesario
 
         should_reset = False
+        reset_reason = "missing_or_invalid_marker"
         if not last_reset_dt:
             # A missing marker may have been erased by an older bridge. Never
             # infer permission to delete the live queue from missing metadata.
@@ -410,6 +380,12 @@ async def check_for_new_session():
 
             if (is_new_day and is_past_reset_hour) or was_reset_before_2am_today:
                 should_reset = True
+                reset_reason = "calendar_day_after_02_or_same_day_crossed_02"
+            else:
+                reset_reason = "marker_current_or_before_02_today"
+
+        logger.info("Daily reset decision: should_reset=%s reason=%s old_marker=%s now=%s",
+                    should_reset, reset_reason, last_reset_date_str, now.isoformat())
         
         # current_session solo se usa como argumento en clear_all_data
         current_session_start_ms = session_start_ms(now)
@@ -691,6 +667,7 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
     playback_id = uuid.uuid4().hex
     command_id = f"play:{playback_id}"
     payload = {"jsonrpc": "2.0", "method": "Player.Open", "params": { "item": { "file": filepath } }, "id": command_id}
+    logger.info("Kodi Player.Open request: song=%s command_id=%s", filename, command_id)
 
     occurred_at = datetime.now(timezone.utc)
     session_id = social_session_id(occurred_at)
@@ -733,12 +710,15 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
                 report_error("No se pudo marcar intención Kodi incierta en el outbox", error)
             return False
         if response.get("error") or response.get("result") not in ("OK", True):
-            logger.error("Kodi rechazó la reproducción de %s: %s", filename, response)
+            logger.error("Kodi rejected Player.Open: song=%s command_id=%s error=%s result=%s",
+                         filename, command_id, response.get("error"), response.get("result"))
             try:
                 SOCIAL_OUTBOX.update(playback_id, status="rejected", resolution="kodi_rejected")
             except Exception as error:
                 report_error("No se pudo marcar rechazo Kodi en el outbox", error)
             return False
+        logger.info("Kodi Player.Open command acknowledged (not playback confirmation): song=%s command_id=%s",
+                    filename, command_id)
     finally:
         pending_kodi_requests.pop(command_id, None)
 
@@ -821,7 +801,7 @@ async def _play_song_on_kodi(ws, filename, current_playing_file):
     except Exception as e:
         report_error("Error historial", e)
 
-    logger.info("REPRODUCIENDO: %s", clean_title(filename))
+    logger.info("Kodi ACK processed; playback not verified: %s", clean_title(filename))
     return True
 
 async def get_next_song(local_filenames):
@@ -1151,6 +1131,7 @@ async def main(subscriptions):
 
         while True:
             data = json.loads(await ws.recv())
+            log_kodi_notification(logger, data, current_playing_file[0])
             response_id = data.get("id")
             if response_id in pending_kodi_requests:
                 future = pending_kodi_requests[response_id]

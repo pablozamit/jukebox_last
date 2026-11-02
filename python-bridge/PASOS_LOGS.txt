@@ -1,0 +1,27 @@
+REGISTROS DEL PUENTE - 2 DE NOVIEMBRE DE 2026
+
+Para activar el ajuste de logs sobre la version estable del bar:
+
+1. Espera a que Drive termine de sincronizar los archivos nuevos en el PC del bar.
+2. Cierra la ventana anterior del puente. No dejes dos copias funcionando.
+3. Abre ARRANCAR_PUENTE.cmd desde esta misma carpeta.
+4. La primera linea debe mostrar version=2.3.0+logs.1 y la ruta de los registros.
+5. Al cabo de un minuto, bridge_diagnostico.txt debe mostrar una hora de
+   exportacion actual (UTC: en noviembre es una hora menos que en el bar).
+
+Si aparece otra version o no cambia la hora, el parche no esta activo en el
+proceso que estas ejecutando. No inicies otra copia para intentar arreglarlo.
+
+bridge.log guarda tambien los mensajes que antes solo salian por consola.
+bridge_errors.log guarda avisos, errores y trazas.
+bridge_diagnostico.txt contiene un resumen cerrado que Drive puede sincronizar.
+La sincronizacion efectiva de Drive se comprueba mirando la fecha desde otro PC.
+
+Una orden aceptada por Kodi no significa que se haya oido la cancion.
+Los eventos del reproductor aparecen aparte, con el archivo observado si Kodi
+lo facilita. Este parche mejora el diagnostico; no cambia la logica de la cola
+ni corrige por si solo el problema de reproduccion o el aviso de la web.
+
+No borres los logs antiguos: sirven para investigar. Se ha conservado una copia
+exacta del bridge anterior con el nombre bridge_before_logging_....py.bak.
+La version 2.4 candidata no se instala con este ajuste.

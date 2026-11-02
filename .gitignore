@@ -38,6 +38,10 @@ Thumbs.db
 
 # Logs
 *.log
+*.log.[0-9]*
+bridge_diagnostico.txt
+.bridge-diagnostic-*.tmp
+python-bridge/bridge_before_logging_*.py.bak
 
 # Generated local social artifacts
 functions/src/generated/

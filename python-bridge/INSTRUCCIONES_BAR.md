@@ -8,7 +8,7 @@ Este documento es tu billete para que todo funcione sin sorpresas cuando llegues
 
 Para no depender de descargar cosas pesadas con el internet del bar, mete esto en tu USB desde casa y pásalo a una carpeta cualquiera en el escritorio del PC del bar (ej: `Carpeta Jukebox`):
 
-1. **Los archivos `bridge.py`, `social_events.py`, `bridge_runtime.py` y `requirements.txt`**: están en `python-bridge`.
+1. **Los archivos `bridge.py`, `social_events.py`, `bridge_runtime.py`, `bridge_logging.py`, `bridge_diagnostics.py` y `requirements.txt`**: están en `python-bridge`.
 2. **El archivo `set_admin.py`**: también en `python-bridge`. Lo necesitarás para dar permisos de admin (solo una vez).
 3. **Este propio documento (`INSTRUCCIONES_BAR.md`)**: Para poder abrirlo y leerlo allí.
 4. La credencial de Firebase, solo si el responsable la ha preparado y autorizado para ese equipo.
@@ -114,7 +114,13 @@ La revisión puede activarse si el perfil cambia entre la captura y la liquidaci
 
 Solo debe ejecutarse una copia del bridge en el equipo y con la misma carpeta de outbox. Detén la versión antigua antes de iniciar la nueva: las versiones antiguas y las configuradas con otra carpeta no comparten el bloqueo de instancia.
 
-Para diagnosticar errores, revisa `bridge_errors.log` junto al bridge y comparte el fragmento pertinente con quien lo mantenga. El archivo puede contener detalles operativos; compártelo solo por el canal autorizado.
+Para diagnosticar errores, revisa `bridge_errors.log` junto al bridge y comparte el fragmento pertinente con quien lo mantenga. Los mensajes de consola también se guardan en `bridge.log`. Ambos archivos rotan a partir de 2 MB y conservan cinco copias anteriores por archivo. Las horas son UTC y cada línea incluye versión y PID.
+
+`bridge_diagnostico.txt` es una copia resumida y cerrada que se actualiza cada minuto para facilitar la sincronización de Drive. Comprueba su fecha de exportación y las fechas de los archivos originales: disponer de este archivo no demuestra que Drive lo haya sincronizado ni que Kodi haya emitido sonido. La copia solo incluye fragmentos de los registros, sin leer `.env` ni las credenciales. No añade lecturas ni escrituras de Firebase.
+
+Una solicitud `Player.Open` y su ACK son órdenes y respuestas del reproductor. Las notificaciones `Player.OnPlay` / `Player.OnAVStart` se registran por separado y distinguen el archivo observado del tema solicitado. El funcionamiento del audio debe comprobarse en el bar.
+
+Los cambios de código se activan al reiniciar el puente en el ordenador del bar. Cierra la ventana antigua antes de abrir `ARRANCAR_PUENTE.cmd`; copiar archivos no actualiza un proceso que ya estaba abierto. Los registros pueden contener detalles operativos; compártelos solo por el canal autorizado.
 
 Al completar la instalación, registra qué componentes arrancaron y qué comprobaciones hiciste en el propio bar. Este documento no demuestra que el puente esté instalado o validado allí.
 
