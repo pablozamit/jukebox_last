@@ -1,11 +1,11 @@
-REGISTROS DEL PUENTE - 2 DE NOVIEMBRE DE 2026
+REGISTROS Y PROTECCION DE LA COLA - 2 DE NOVIEMBRE DE 2026
 
-Para activar el ajuste de logs sobre la version estable del bar:
+Para activar el ajuste de logs y cola sobre la version estable del bar:
 
 1. Espera a que Drive termine de sincronizar los archivos nuevos en el PC del bar.
 2. Cierra la ventana anterior del puente. No dejes dos copias funcionando.
-3. Abre ARRANCAR_PUENTE.cmd desde esta misma carpeta.
-4. La primera linea debe mostrar version=2.3.0+logs.1 y la ruta de los registros.
+3. Abre bridge.py como siempre, desde esta misma carpeta.
+4. La primera linea debe mostrar version=2.3.1+logs.1 y la ruta de los registros.
 5. Al cabo de un minuto, bridge_diagnostico.txt debe mostrar una hora de
    exportacion actual (UTC: en noviembre es una hora menos que en el bar).
 
@@ -19,9 +19,12 @@ La sincronizacion efectiva de Drive se comprueba mirando la fecha desde otro PC.
 
 Una orden aceptada por Kodi no significa que se haya oido la cancion.
 Los eventos del reproductor aparecen aparte, con el archivo observado si Kodi
-lo facilita. Este parche mejora el diagnostico; no cambia la logica de la cola
-ni corrige por si solo el problema de reproduccion o el aviso de la web.
+lo facilita. Este parche conserva la marca de jornada al publicar una cancion.
+Si falta la marca, crea una referencia sin vaciar la cola. La limpieza diaria
+solo se marca terminada cuando se completa correctamente. La web anuncia la
+devolucion de votos o propuestas sin afirmar que la cancion haya sonado.
+La reproduccion audible debe comprobarse en el bar.
 
 No borres los logs antiguos: sirven para investigar. Se ha conservado una copia
-exacta del bridge anterior con el nombre bridge_before_logging_....py.bak.
+exacta del bridge anterior con el nombre bridge_before_queue_fix_....py.bak.
 La version 2.4 candidata no se instala con este ajuste.
